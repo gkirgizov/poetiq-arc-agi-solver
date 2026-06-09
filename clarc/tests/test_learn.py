@@ -7,7 +7,7 @@ library round-trip, and an end-to-end A1L solve where a new invariant is induced
 import numpy as np
 
 from clarc.generator import StubGenerator
-from clarc.learn import parse_proposal, propose_contract, verify_on_pairs
+from clarc.learn import induced_violations, parse_proposal, propose_contract, verify_on_pairs
 from clarc.library import ContractLibrary
 from clarc.loop import solve_task
 from clarc.predicate_sandbox import verify_predicate
@@ -117,3 +117,41 @@ async def test_a1l_induces_then_solves():
     assert log["solved"] and log["iterations_to_solve"] == 2
     assert log["n_learned"] == 1
     assert any("color 1" in d for d in log["learned"])
+
+
+# ---- induced predicates enforced in violations / pruning ----
+
+async def test_induced_violations_unit():
+    lc = LearnedContract(name="x", descr="no color 1", code=PRED_GOOD)
+    good = [np.array(go) for go in TRAIN_OUT]   # correct outputs satisfy "no color 1"
+    bad = [np.array(gi) for gi in TRAIN_IN]      # identity outputs contain 1 -> violate
+    assert await induced_violations([lc], TRAIN_IN, good) == []
+    assert lc in await induced_violations([lc], TRAIN_IN, bad)
+    assert await induced_violations([lc], TRAIN_IN, [None, None]) == []  # no produced grids
+
+
+async def test_a1l_enforces_induced_contract():
+    # it0 identity -> induce "no color 1"; it1 identity -> induced contract bites
+    # (structural); it2 correct -> solved.
+    gen = StubGenerator([IDENTITY, PRED_GOOD, IDENTITY, CORRECT])
+    cfg = ClarcConfig(max_iterations=5, seed=0, shuffle_examples=False, problem_id="recolor",
+                      spec_inject=True, clause_learn=True, clause_inject=True,
+                      learn_contracts=True, use_library=False)
+    result = await solve_task(train_in=TRAIN_IN, train_out=TRAIN_OUT, test_in=TEST_IN,
+                              generator=gen, config=cfg, arm="A1L")
+    recs = result["clarc_log"]["records"]
+    assert recs[1]["conflict_type"] == "structural"
+    assert any(v.startswith("induced_") for v in recs[1]["violated"])
+    assert result["clarc_log"]["solved"]
+
+
+async def test_a2l_prunes_on_induced_contract():
+    gen = StubGenerator([IDENTITY, PRED_GOOD, IDENTITY, CORRECT])
+    cfg = ClarcConfig(max_iterations=5, seed=0, shuffle_examples=False, problem_id="recolor",
+                      spec_inject=True, clause_learn=True, clause_inject=True,
+                      clause_prune=True, learn_contracts=True, use_library=False)
+    result = await solve_task(train_in=TRAIN_IN, train_out=TRAIN_OUT, test_in=TEST_IN,
+                              generator=gen, config=cfg, arm="A2L")
+    recs = result["clarc_log"]["records"]
+    assert recs[1]["pruned"] is True
+    assert result["clarc_log"]["solved"]

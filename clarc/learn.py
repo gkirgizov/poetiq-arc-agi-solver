@@ -106,3 +106,29 @@ async def verify_on_pairs(code: str, train_pairs: list[Pair], *, timeout_s: floa
     """Sound-reuse gate for a library candidate: does it hold on THIS task?"""
     res = await verify_predicate(code, train_pairs, timeout_s=timeout_s)
     return res is not None and len(res) > 0 and all(r is True for r in res)
+
+
+async def induced_violations(
+    learned: list[LearnedContract],
+    train_in: list,
+    produced: list[Optional[np.ndarray]],
+    *,
+    timeout_s: float = 5.0,
+) -> list[LearnedContract]:
+    """Which induced contracts a candidate's outputs violate (sandboxed, batched).
+
+    Evaluated only on inputs the candidate actually produced a grid for; a contract
+    is violated if its predicate is not True on every such (input, produced-output)
+    pair. Since each induced predicate holds on all TRAIN pairs (the gate), a
+    violation proves the candidate is train-wrong — so it is sound for pruning.
+    """
+    pairs = [(np.asarray(gi, dtype=int), po)
+             for gi, po in zip(train_in, produced) if po is not None]
+    if not pairs or not learned:
+        return []
+    bad: list[LearnedContract] = []
+    for lc in learned:
+        res = await verify_predicate(lc.code, pairs, timeout_s=timeout_s)
+        if res is None or not all(r is True for r in res):
+            bad.append(lc)
+    return bad

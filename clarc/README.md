@@ -130,11 +130,16 @@ A1L's `clause_yield` rises over A1 (semantic conflicts converted into checkable
 invariants), and whether `contract_library.json` accumulates reusable contracts
 that lift later tasks.
 
+Induced predicates are enforced like fixed contracts: they participate in the
+sandboxed `violations()` check, make a conflict *structural*, feed structured
+feedback, and are pruned under `clause_prune` (sound — each holds on all train
+pairs by the gate, so a violation proves train-wrongness). This makes the loop
+converge: keep inducing until the candidate's failures are explained by learned
+invariants.
+
 ## Deferred (extension points, not built)
 
-Pruning on induced predicates (currently injection-only; the gate is sound but the
-in-loop `violations()` check covers only the fixed basis) · library
-compression/abstraction (Stitch/DreamCoder-style) · SMT/CrossHair contract
+Library compression/abstraction (Stitch/DreamCoder-style) · SMT/CrossHair contract
 *entailment* (prune without evaluation) · ILP selector-invention / counterfactuals
 (Popper) · mandated typed-DSL composition (ablation A4). The interfaces are designed
 so these slot in without a rewrite.

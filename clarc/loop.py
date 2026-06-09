@@ -31,9 +31,9 @@ from arc_agi.solve_coding import (
 )
 from arc_agi.types import ARCAGIResult, ARCAGISolution, RunResult
 
-from clarc.analyze import classify_conflict, parse_grid, render_violation_feedback
+from clarc.analyze import parse_grid, render_violation_feedback
 from clarc.instrument import IterRecord, RunLog
-from clarc.learn import propose_contract, verify_on_pairs
+from clarc.learn import induced_violations, propose_contract, verify_on_pairs
 from clarc.library import ContractLibrary
 from clarc.spec import extract_spec, loo_trusted
 from clarc.store import LearnedStore
@@ -159,26 +159,32 @@ async def solve_task(
 
         # ---- contract pre-check: conflict detection (cheapest-first) ----
         violated = []
+        violated_learned = []
         conflict_type = None
         produced: list = []
         if spec is not None and (cfg.clause_learn or cfg.learn_contracts):
             produced = [parse_grid(r) for r in train_res]
-            violated = spec.violations(train_in, produced)
-            conflict_type = classify_conflict(violated)
+            violated = spec.violations(train_in, produced)               # fixed basis
+            if store is not None and store.learned:                       # induced/reused
+                violated_learned = await induced_violations(
+                    store.learned, train_in, produced, timeout_s=cfg.timeout_sandbox_s
+                )
+            conflict_type = "structural" if (violated or violated_learned) else "semantic"
             if store is not None and cfg.clause_learn:
                 store.note(violated)
 
-        # ---- feedback: poetiq diff, prefixed with the precise structured reason ----
+        # ---- feedback: poetiq diff, prefixed with the precise structured reasons ----
         feedback, score = _build_feedback(train_res, train_in, train_out)
-        if violated and cfg.clause_learn:
-            feedback = render_violation_feedback(violated) + "\n\n" + feedback
+        if (violated or violated_learned) and (cfg.clause_learn or cfg.learn_contracts):
+            feedback = render_violation_feedback(violated + violated_learned) + "\n\n" + feedback
 
-        # ---- pruning (A2): a candidate violating a TRUSTED invariant is provably
-        #      train-wrong; keep it out of the best/answer pool (the backjump).
+        # ---- pruning (A2): a candidate violating a TRUSTED fixed invariant OR ANY
+        #      induced invariant (each holds on all train pairs by the gate, so a
+        #      violation proves train-wrongness) is kept out of the best pool.
         pruned = False
         harmful = False
-        if cfg.clause_prune and store is not None and violated and any(
-            c.name in store.trusted for c in violated
+        if cfg.clause_prune and store is not None and (
+            any(c.name in store.trusted for c in violated) or bool(violated_learned)
         ):
             pruned = True
             harmful = best_result is not None and score > best_score
@@ -209,7 +215,8 @@ async def solve_task(
 
         runlog.add(IterRecord(
             iteration=it + 1, stage=(conflict_type or "wrong"), soft_score=score,
-            violated=[c.name for c in violated], conflict_type=conflict_type,
+            violated=[c.name for c in violated] + [lc.name for lc in violated_learned],
+            conflict_type=conflict_type,
             pruned=pruned, harmful_prune=harmful, cost_usd=g.cost_usd,
             prompt_tokens=g.prompt_tokens, completion_tokens=g.completion_tokens,
         ))
