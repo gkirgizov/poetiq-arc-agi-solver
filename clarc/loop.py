@@ -39,6 +39,18 @@ from clarc.spec import extract_spec, loo_trusted
 from clarc.store import LearnedStore
 from clarc.types import ClarcConfig, Generator, LearnedContract
 
+# Terse single-attempt prompt: curbs the CLI's tendency to let strong models
+# deliberate for many minutes on hard puzzles. Uses the same $$problem$$ slot.
+LEAN_SOLVER_PROMPT = '''Solve this Abstract Reasoning (ARC) puzzle by writing Python code.
+
+Write exactly one function `transform(grid: np.ndarray) -> np.ndarray` that maps each
+input grid to its output grid, consistent with ALL the examples. Use numpy/scipy.
+Output EXACTLY one ```python code block and nothing else. Make a single best attempt
+— do not deliberate at length or explore many alternatives.
+
+$$problem$$
+'''
+
 
 async def solve_task(
     *,
@@ -102,7 +114,8 @@ async def solve_task(
         # ---- build prompt ----
         example = _make_example(train_in, train_out, test_in)
         problem_str = format_problem(example, cfg.shuffle_examples, cfg.seed + it)
-        message = _build_prompt(SOLVER_PROMPT_1, problem=problem_str)
+        base_prompt = LEAN_SOLVER_PROMPT if cfg.lean_prompt else SOLVER_PROMPT_1
+        message = _build_prompt(base_prompt, problem=problem_str)
 
         # contract injection: dynamic store (fixed + discovered invariants) when
         # learning/inducing, else the static spec when only spec_inject is on.

@@ -84,6 +84,8 @@ async def _run_one(task_id, task, generator, cfg_base, sem):
             "n_conflicts": log.get("n_conflicts", 0),
             "clause_yield": log.get("clause_yield", 0.0),
             "n_pruned": log.get("n_pruned", 0),
+            "n_learned": log.get("n_learned", 0),
+            "learned": log.get("learned", []),
             "log": log,
         }
         return task_id, preds, meta, time.time() - start
@@ -118,7 +120,8 @@ async def main_async(args) -> None:
             print(f"! {task_id} ({round(elapsed)}s) {meta.get('error')}")
             continue
         total_cost += meta.get("cost_usd", 0.0) or 0.0
-        cw = f"conf={meta['n_conflicts']} yield={meta['clause_yield']:.2f} prune={meta['n_pruned']}"
+        cw = (f"conf={meta['n_conflicts']} yield={meta['clause_yield']:.2f} "
+              f"prune={meta['n_pruned']} learned={meta['n_learned']}")
         if solutions is not None and task_id in solutions:
             s = score_task(preds, solutions[task_id])
             total += 1
@@ -128,6 +131,8 @@ async def main_async(args) -> None:
                   f"${meta['cost_usd']:.3f} ({round(elapsed)}s) [{correct:g}/{total}]")
         else:
             print(f"· {task_id} it={meta['iteration']} {cw} ${meta['cost_usd']:.3f} ({round(elapsed)}s)")
+        for d in meta["learned"]:
+            print(f"      ↳ learned: {d}")
 
     print("\n=== summary ===")
     if total:

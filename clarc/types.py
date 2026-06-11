@@ -76,6 +76,7 @@ class ClarcConfig:
     seed: int = 0
     shuffle_examples: bool = True
     return_best_result: bool = True
+    lean_prompt: bool = False          # use a terse single-attempt prompt (curbs CLI over-thinking)
     # poetiq-style feedback memory (used when contract machinery is off)
     max_solutions: int = 5
     selection_probability: float = 1.0

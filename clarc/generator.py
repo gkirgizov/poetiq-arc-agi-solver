@@ -27,7 +27,21 @@ from typing import Optional, Sequence
 from clarc.codeparse import parse_transform_code
 from clarc.types import GenOutput
 
-_CLAUDE_BIN = shutil.which("claude") or "claude"
+def _find_claude() -> str:
+    """Resolve the claude binary, robust to the native-install migration
+    (~/.local/bin) when it's not on the inherited PATH."""
+    p = shutil.which("claude")
+    if p:
+        return p
+    for c in (os.path.expanduser("~/.local/bin/claude"),
+              "/opt/homebrew/bin/claude", "/usr/local/bin/claude"):
+        if os.path.exists(c):
+            return c
+    return "claude"
+
+
+_CLAUDE_BIN = _find_claude()
+_LOCAL_BIN = os.path.expanduser("~/.local/bin")
 # Repo root = parent of the clarc/ package dir. Used as a trusted cwd.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -42,13 +56,30 @@ class ClaudeCodeGenerator:
         timeout_s: float = 180.0,
         cwd: Optional[str] = None,
         max_budget_usd: Optional[float] = None,
+        effort: Optional[str] = None,
+        max_thinking_tokens: Optional[int] = None,
         extra_args: Sequence[str] = (),
     ) -> None:
         self.model = model
         self.timeout_s = timeout_s
         self.cwd = cwd or _REPO_ROOT
         self.max_budget_usd = max_budget_usd
+        self.effort = effort           # low|medium|high|xhigh|max; caps thinking time
+        self.max_thinking_tokens = max_thinking_tokens  # bounds extended thinking (CLI env)
         self.extra_args = tuple(extra_args)
+
+    def _env(self) -> dict:
+        # Honor "CLI subscription auth only": inherit the environment (so claude can
+        # find its OAuth creds via HOME/keychain) but strip API-token vars so `claude
+        # -p` can NEVER fall back to API-token billing.
+        env = dict(os.environ)
+        for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+            env.pop(k, None)
+        if _LOCAL_BIN not in env.get("PATH", ""):
+            env["PATH"] = _LOCAL_BIN + os.pathsep + env.get("PATH", "")
+        if self.max_thinking_tokens is not None:
+            env["MAX_THINKING_TOKENS"] = str(self.max_thinking_tokens)
+        return env
 
     def _argv(self) -> list[str]:
         argv = [
@@ -60,6 +91,8 @@ class ClaudeCodeGenerator:
         ]
         if self.model:
             argv += ["--model", self.model]
+        if self.effort:
+            argv += ["--effort", self.effort]
         if self.max_budget_usd is not None:
             argv += ["--max-budget-usd", str(self.max_budget_usd)]
         argv += list(self.extra_args)
@@ -75,6 +108,7 @@ class ClaudeCodeGenerator:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.cwd,
+                env=self._env(),
             )
         except FileNotFoundError:
             return GenOutput(code=None, raw="", error="claude-cli-not-found")
