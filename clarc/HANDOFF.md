@@ -105,7 +105,37 @@ or **#4** (haiku) for a free mechanism check.
 
 ---
 
-## 3. What the existing data already shows
+## 3a. RESULT — first full A0/A5/A1/A1L comparison on ARC-AGI-2 (2026-06-11)
+
+`output/exp-arc2-s45-t4k/` — sonnet-4-5, 4k thinking budget, 36-task Phase A sweep
+(35 test-fail / 1 solve / 0 gen-fail — the failure band finally exists), Phase B =
+12-task band × 4 arms × ≤6 iters. 84 cells, 0 voids, ~$50 notional (subscription).
+
+| arm | test acc (pass@1) | train-solved | med iters | conf | yield | induced |
+|---|---|---|---|---|---|---|
+| A0  | 2.8% | 0/12 | – | 0 | 0 | 0 |
+| A5  | 2.8% | 1/12 | 5.0 | 0 | 0 | 0 |
+| A1  | 2.8% | 2/12 | 4.0 | 66 | 0.26 | 0 |
+| A1L | **9.7%** | 1/12 | **3.0** | 68 | **0.51** | 32 |
+
+Honest read: **every directional signal favors contracts, none reaches significance
+at n=12.** 9/12 band tasks floor at 0 for ALL arms (ARC-2 is brutal at a 4k thinking
+budget); differentiation happens on 3 tasks. On `1ae2feb7` the gradient is monotone
+in machinery strength: A0 never train-converges (test 0.33) → A5 solves train in 5
+iters → A1 in 4 → A1L in 3 with test 0.67. `142ca369`: only A1L scores (0.5).
+`3dc255db`: only A1 train-converges (test 0 — overfit). Paired A1L>A0: +2/−0/=10
+(sign test p≈0.25). Machinery engagement is unambiguous: conflicts fire ~5.6/cell in
+A1/A1L vs 0; induction doubles clause yield (0.26→0.51); 32 inductions, 6 unique
+contracts, all human-readable (e.g. "Every row and every column must contain at
+least two distinct values"), harm=0 — contracts never hurt, at equal cost (~$10/arm).
+
+**To strengthen:** (a) widen the band — 23 more failed tasks are already swept and
+waiting (`--max-band 35` resumes straight into Phase B; ~$30/12 tasks); (b) raise
+`--iters` (A0 may converge late, sharpening the iteration-reduction contrast);
+(c) raise the thinking budget to 8–16k to lift the floor. All resume from the same
+checkpoint dir.
+
+## 3b. What the earlier data showed
 
 On-disk runs (`output/*/runs.jsonl`; each line `{phase,task,arm,solved,iters,acc,
 conf,learned,n_learned,cost,...}`):
