@@ -148,7 +148,28 @@ dollar given the variance observed; (b) lift the floor: 8–16k thinking budget
 (slower/dearer per call) or `--max-grid 30+` to admit more/easier band tasks;
 (c) accept the mechanism-level result and reframe the claim as "contracts speed
 train convergence + add interpretability at zero cost/harm", which the data does
-support.
+support; (d) **opus-4-8** — see §3c.
+
+## 3c. Opus 4.8 trial (2026-06-12)
+
+Probes on the sonnet-floor task `20270e3b` + a 9-task one-shot floor-sample
+(`output/opus-floor-sample.log`, ~$10 notional total):
+
+- **No thinking-control knob works on opus-4-8 in `-p`**: `--max-thinking-tokens
+  8000` is ignored (adaptive model: 46k output tokens, 532s, $1.22) and `--effort
+  medium` does nothing (63k tokens, 755s, $1.64 — worse than default). Unlike
+  sonnet-4-6 it always *returns* eventually, but gens run 3–15 min (median ~6),
+  ~$1/gen, and 2/10 hard-task gens hit a 900s timeout ($0, the old hang mode).
+- **Opus one-shot lifts ~55% of the sonnet floor** (pass@1): full solves on
+  20270e3b, 136b0064, 332f06d7, 409aa875, 4c3d4a41, half on 247ef758 = 5.5/10
+  tasks where every bounded-sonnet arm scored 0 over 6–10 iters. The remaining
+  ~45% (269e22fb, 28a6681f, 2b83f449, 6ffbe589 + timeouts) is a genuine
+  mid-difficulty opus band — the differentiable surface contracts need.
+- **Projected full opus experiment** (Phase A 1-iter sweep 36 tasks ≈ $35/~4h →
+  band ~18; Phase B A0-vs-A1L × 6 iters ≈ $150–250 notional, 10–30h wall at
+  conc 3): viable but a half-day+ commitment with no working effort knob —
+  GATED on the user. The harness is ready (`--model claude-opus-4-8
+  --sweep-iters 1 --arms A0,A1L --timeout 900`, fresh `--out`).
 
 ## 3b. What the earlier data showed
 
