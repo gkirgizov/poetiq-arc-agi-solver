@@ -2,15 +2,31 @@
 
 **Goal:** verify the hypothesis that *contract-learning helps an LLM solve ARC* —
 i.e. that arms A5/A1/A1L beat the poetiq-style baseline A0. The **system is built
-and unit-verified (32 tests)**; the **live hypothesis test is NOT done**, blocked on
-LLM access (details below). This doc gives you everything to finish it.
+and unit-verified (32 tests)**.
 
-Read `clarc/README.md` first for the architecture. This doc focuses on **what we
-learned, why we're blocked, and how to unblock + run.**
+> **UPDATE 2026-06-11 — BLOCKER RESOLVED.** The CLI accepts hidden argv flags
+> (found in the `claude-agent-sdk` transport source, absent from `--help`):
+> `--max-thinking-tokens N` (N ≥ 1024; lands in the API request as
+> `thinking.budget_tokens` — verified by the API 400 on N=1000) and
+> `--thinking disabled|adaptive`. **Crucially the model must be pinned to
+> `claude-sonnet-4-5`**: the `sonnet` alias resolves to `claude-sonnet-4-6`,
+> an adaptive-thinking model that treats numeric budgets as merely on/off →
+> unbounded deliberation → the hangs in §1. With
+> `--model claude-sonnet-4-5 --max-thinking-tokens 4000`, the hard ARC-2 task
+> `20270e3b` (hung >1200s before) returns in **50s** with a real attempt, on
+> CLI subscription auth (no API key, no setup-token needed). Also fixed: user-level
+> MCP servers were leaking into `-p` runs (the model called Figma/Excalidraw MCP
+> tools mid-puzzle!) — generator now passes `--strict-mcp-config`. The
+> `MAX_THINKING_TOKENS` env var and `--effort` remain ignored in `-p`; the argv
+> flags are the working knob, now plumbed through `generator.py` /
+> `experiment.py --max-thinking/--thinking` / `run.py`.
+
+Read `clarc/README.md` first for the architecture. §1 below is the original
+blocker analysis (kept for context); §2 lists the alternative paths (now moot).
 
 ---
 
-## 1. The blocker (read this first)
+## 1. The original blocker (resolved above; kept for context)
 
 The hypothesis test needs a generator that BOTH (a) returns fast on hard tasks and
 (b) fails enough to leave room for contracts to help. The only LLM access on this
@@ -132,13 +148,19 @@ by default).
 - Band def: `_room()` = real attempt AND (test-wrong OR >1 iter). Edit to taste
   (e.g. failure-only for solve-rate framing).
 
-Example (once a fast generator exists — adapt `--model`/backend):
+**The working recipe (bounded-thinking sonnet-4-5 on CLI subscription auth) — launched
+2026-06-11 into `output/exp-arc2-s45-t4k/`:**
 ```bash
-# with a key + a LiteLLMGenerator wired in (alt 1/2/3):
-uv run python -m clarc.experiment --data 2025-eval --n 120 --max-grid 20 \
-  --sweep-iters 2 --iters 6 --arms A0,A5,A1,A1L --concurrency 8 --out output/exp-arc2
-uv run python -m clarc.experiment --report-only --out output/exp-arc2
+uv run python -m clarc.experiment --data 2025-eval --model claude-sonnet-4-5 \
+  --max-thinking 4000 --n 120 --max-grid 20 --sweep-iters 2 --iters 6 \
+  --max-band 12 --arms A0,A5,A1,A1L --concurrency 4 --timeout 300 \
+  --out output/exp-arc2-s45-t4k
+uv run python -m clarc.experiment --report-only --out output/exp-arc2-s45-t4k
 ```
+Must-knows: pin `claude-sonnet-4-5` (the `sonnet` alias = 4-6, ignores numeric
+budgets); budget ≥1024; ~50s and ~$0.09 notional per generation (subscription-billed);
+`clarc/probe_bounded.py` re-checks the regime per task. Phase-B cells with zero real
+attempts (throttle/outage) are NOT checkpointed (`_void`) so a relaunch retries them.
 `run.py` solves specific tasks; `devset.py` curates a stratified dev set.
 
 **Supervise long runs** with a heartbeat monitor (the experiment also emits a

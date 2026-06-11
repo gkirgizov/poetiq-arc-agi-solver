@@ -58,6 +58,7 @@ class ClaudeCodeGenerator:
         max_budget_usd: Optional[float] = None,
         effort: Optional[str] = None,
         max_thinking_tokens: Optional[int] = None,
+        thinking: Optional[str] = None,
         extra_args: Sequence[str] = (),
     ) -> None:
         self.model = model
@@ -65,7 +66,12 @@ class ClaudeCodeGenerator:
         self.cwd = cwd or _REPO_ROOT
         self.max_budget_usd = max_budget_usd
         self.effort = effort           # low|medium|high|xhigh|max; caps thinking time
-        self.max_thinking_tokens = max_thinking_tokens  # bounds extended thinking (CLI env)
+        # Hidden CLI flags (verified accepted in -p; the Agent SDK passes the same):
+        # --max-thinking-tokens N bounds extended thinking; --thinking disabled|adaptive
+        # turns it off entirely / makes it adaptive. The MAX_THINKING_TOKENS env var is
+        # IGNORED in -p mode — these argv flags are the working knob.
+        self.max_thinking_tokens = max_thinking_tokens
+        self.thinking = thinking
         self.extra_args = tuple(extra_args)
 
     def _env(self) -> dict:
@@ -77,8 +83,6 @@ class ClaudeCodeGenerator:
             env.pop(k, None)
         if _LOCAL_BIN not in env.get("PATH", ""):
             env["PATH"] = _LOCAL_BIN + os.pathsep + env.get("PATH", "")
-        if self.max_thinking_tokens is not None:
-            env["MAX_THINKING_TOKENS"] = str(self.max_thinking_tokens)
         return env
 
     def _argv(self) -> list[str]:
@@ -86,13 +90,19 @@ class ClaudeCodeGenerator:
             _CLAUDE_BIN,
             "-p",
             "--output-format", "json",
-            "--tools", "",                  # disable all tools: pure one-shot text gen
+            "--tools", "",                  # disable all BUILT-IN tools
+            "--strict-mcp-config",          # ...and block user-config MCP servers (they
+                                            # otherwise attach and pollute generations)
             "--no-session-persistence",
         ]
         if self.model:
             argv += ["--model", self.model]
         if self.effort:
             argv += ["--effort", self.effort]
+        if self.thinking:
+            argv += ["--thinking", self.thinking]
+        elif self.max_thinking_tokens is not None:
+            argv += ["--max-thinking-tokens", str(self.max_thinking_tokens)]
         if self.max_budget_usd is not None:
             argv += ["--max-budget-usd", str(self.max_budget_usd)]
         argv += list(self.extra_args)

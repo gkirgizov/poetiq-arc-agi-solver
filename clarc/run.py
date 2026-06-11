@@ -99,7 +99,9 @@ async def main_async(args) -> None:
     else:
         ids = list(challenges.keys())[: args.num] if args.num else list(challenges.keys())
 
-    generator = ClaudeCodeGenerator(model=args.model, timeout_s=args.timeout)
+    generator = ClaudeCodeGenerator(model=args.model, timeout_s=args.timeout,
+                                    max_thinking_tokens=args.max_thinking,
+                                    thinking=args.thinking)
     cfg_base = dict(
         model=args.model, max_iterations=args.iters, seed=args.seed,
         request_timeout_s=args.timeout, _arm=args.arm, **ARMS[args.arm],
@@ -150,6 +152,10 @@ def main() -> None:
     p.add_argument("--iters", type=int, default=10)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--timeout", type=float, default=300.0)
+    p.add_argument("--max-thinking", type=int, default=None, dest="max_thinking",
+                   help="bound extended thinking via the hidden --max-thinking-tokens CLI flag")
+    p.add_argument("--thinking", default=None, choices=["disabled", "adaptive"],
+                   help="--thinking CLI flag; 'disabled' turns extended thinking off")
     p.add_argument("--concurrency", type=int, default=4)
     asyncio.run(main_async(p.parse_args()))
 

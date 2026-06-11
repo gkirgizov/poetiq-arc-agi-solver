@@ -71,6 +71,13 @@ def _rec(phase, tid, arm, log, acc):
             "genfail": log.get("n_gen_failures", 0), "cost": log.get("total_cost_usd", 0.0)}
 
 
+def _void(rec):
+    """A cell with ZERO real attempts (every iteration was a gen failure: throttle,
+    timeout, CLI error). Checkpointing it would freeze a transient outage into the
+    results — callers skip the write so a relaunch retries the cell."""
+    return (rec["cost"] or 0) == 0 and rec["genfail"] > 0 and not rec["solved"]
+
+
 def _med(xs):
     return statistics.median(xs) if xs else float("nan")
 
@@ -135,7 +142,7 @@ async def main_async(args):
     def gen():
         return StubGenerator([_IDENTITY]) if args.stub else ClaudeCodeGenerator(
             model=args.model, timeout_s=args.timeout, effort=args.effort,
-            max_thinking_tokens=args.max_thinking)
+            max_thinking_tokens=args.max_thinking, thinking=args.thinking)
 
     def score(tid, preds):
         return score_task(preds, solutions[tid]) if (solutions and tid in solutions and preds) else 0.0
@@ -161,7 +168,11 @@ async def main_async(args):
         async def _a(tid):
             res, preds = await _run(tid, challenges[tid], "A0", gen(), iters=args.sweep_iters,
                                     seed=0, sem=sem, timeout=args.timeout, lean=args.lean)
-            write(_rec("A", tid, "A0", res.get("clarc_log", {}), score(tid, preds)))
+            rec = _rec("A", tid, "A0", res.get("clarc_log", {}), score(tid, preds))
+            if _void(rec):
+                print(f"  VOID A {tid}: no real attempt (genfail={rec['genfail']}) — not checkpointed")
+                return
+            write(rec)
 
         await asyncio.gather(*[asyncio.create_task(_a(t)) for t in todo])
         sweepvals = {t: done[("A", t, "A0")] for t in ids if ("A", t, "A0") in done}
@@ -197,9 +208,13 @@ async def main_async(args):
     async def _b(tid, arm):
         res, preds = await _run(tid, challenges[tid], arm, gen(), iters=args.iters,
                                 seed=0, sem=sem, timeout=args.timeout, lean=args.lean)
-        write(_rec("B", tid, arm, res.get("clarc_log", {}), score(tid, preds)))
-        print(f"  done {arm} {tid}: solved={done[('B',tid,arm)]['solved']} "
-              f"conf={done[('B',tid,arm)]['conf']} learned={done[('B',tid,arm)]['n_learned']}")
+        rec = _rec("B", tid, arm, res.get("clarc_log", {}), score(tid, preds))
+        if _void(rec):
+            print(f"  VOID B {arm} {tid}: no real attempt (genfail={rec['genfail']}) — not checkpointed")
+            return
+        write(rec)
+        print(f"  done {arm} {tid}: solved={rec['solved']} acc={rec['acc']} "
+              f"conf={rec['conf']} learned={rec['n_learned']}")
 
     await asyncio.gather(*[asyncio.create_task(_b(t, a)) for t, a in cells])
     sink.close()
@@ -212,7 +227,9 @@ def main():
     p.add_argument("--model", default=None)
     p.add_argument("--effort", default=None, help="claude effort: low|medium|high|xhigh|max")
     p.add_argument("--max-thinking", type=int, default=None, dest="max_thinking",
-                   help="MAX_THINKING_TOKENS env to bound sonnet thinking time")
+                   help="bound extended thinking via the hidden --max-thinking-tokens CLI flag")
+    p.add_argument("--thinking", default=None, choices=["disabled", "adaptive"],
+                   help="--thinking CLI flag; 'disabled' turns extended thinking off")
     p.add_argument("--band", default="", help="explicit comma-separated band (skip Phase A)")
     p.add_argument("--n", type=int, default=50)
     p.add_argument("--sweep-iters", type=int, default=3, dest="sweep_iters")
