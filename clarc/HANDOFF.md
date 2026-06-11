@@ -105,35 +105,50 @@ or **#4** (haiku) for a free mechanism check.
 
 ---
 
-## 3a. RESULT — first full A0/A5/A1/A1L comparison on ARC-AGI-2 (2026-06-11)
+## 3a. RESULT — full A0/A5/A1/A1L comparison on ARC-AGI-2 (2026-06-11)
 
-`output/exp-arc2-s45-t4k/` — sonnet-4-5, 4k thinking budget, 36-task Phase A sweep
-(35 test-fail / 1 solve / 0 gen-fail — the failure band finally exists), Phase B =
-12-task band × 4 arms × ≤6 iters. 84 cells, 0 voids, ~$50 notional (subscription).
+`output/exp-arc2-s45-t4k/` — sonnet-4-5, 4k thinking budget, seed 0, pass@1.
+Phase A: all 36 gen-safe tasks (≤20px) → 35 test-fail / 1 solve / 0 gen-fail —
+the failure band finally exists. Phase B: **35-task band × 4 arms**, run in two
+cohorts (12 tasks @ ≤6 iters, then 23 @ ≤10 — same per-task cap across arms, so
+paired comparisons stay valid). 176 cells, 0 voids, ~$203 notional (subscription).
 
-| arm | test acc (pass@1) | train-solved | med iters | conf | yield | induced |
-|---|---|---|---|---|---|---|
-| A0  | 2.8% | 0/12 | – | 0 | 0 | 0 |
-| A5  | 2.8% | 1/12 | 5.0 | 0 | 0 | 0 |
-| A1  | 2.8% | 2/12 | 4.0 | 66 | 0.26 | 0 |
-| A1L | **9.7%** | 1/12 | **3.0** | 68 | **0.51** | 32 |
+| arm | test acc | full solves | train-solved | med iters | conf | yield | induced |
+|---|---|---|---|---|---|---|---|
+| A0  | 3.8% | 1 | 3/35 | 8.0 | 0 | 0 | 0 |
+| A5  | 3.8% | 1 | 1/35 | 5.0 | 0 | 0 | 0 |
+| A1  | 3.8% | 1 | 2/35 | 4.0 | 294 | 0.19 | 0 |
+| A1L | **6.2%** | 1 | 1/35 | **3.0** | 297 | 0.42 | 98 (11 uniq) |
 
-Honest read: **every directional signal favors contracts, none reaches significance
-at n=12.** 9/12 band tasks floor at 0 for ALL arms (ARC-2 is brutal at a 4k thinking
-budget); differentiation happens on 3 tasks. On `1ae2feb7` the gradient is monotone
-in machinery strength: A0 never train-converges (test 0.33) → A5 solves train in 5
-iters → A1 in 4 → A1L in 3 with test 0.67. `142ca369`: only A1L scores (0.5).
-`3dc255db`: only A1 train-converges (test 0 — overfit). Paired A1L>A0: +2/−0/=10
-(sign test p≈0.25). Machinery engagement is unambiguous: conflicts fire ~5.6/cell in
-A1/A1L vs 0; induction doubles clause yield (0.26→0.51); 32 inductions, 6 unique
-contracts, all human-readable (e.g. "Every row and every column must contain at
-least two distinct values"), harm=0 — contracts never hurt, at equal cost (~$10/arm).
+**Verdict: NOT verified at this regime/n — directional at best.** 27/35 band tasks
+floor at 0 for every arm. Only 8 tasks differentiate:
 
-**To strengthen:** (a) widen the band — 23 more failed tasks are already swept and
-waiting (`--max-band 35` resumes straight into Phase B; ~$30/12 tasks); (b) raise
-`--iters` (A0 may converge late, sharpening the iteration-reduction contrast);
-(c) raise the thinking budget to 8–16k to lift the floor. All resume from the same
-checkpoint dir.
+- `1ae2feb7` [6it]: monotone gradient A0 0.33 (never converges) → A5 train-solve@5
+  → A1 @4 → A1L @3 with test 0.67. The cleanest pro-contract cell.
+- `142ca369` [6it]: only A1L scores (0.5). `8f3a5a89` [10it]: only A1L full-solves
+  (1.0, via best-result selection without train convergence).
+- `e376de54` [10it]: **A5 and A1 full-solve, A0 and A1L get 0** — the static-spec
+  ingredient wins; A1L's induction didn't help here (single-seed variance).
+- `bf45cf4b` [10it]: **A0 full-solves @7 iters, all contract arms 0** — the one
+  baseline win; late convergence the 6-iter cohort would have missed.
+- `3dc255db`/`d35bdbdc`/`db0c5428`: train-convergence only (test 0 — overfit; two
+  are A0-only, enabled by the 10-iter cap).
+
+Paired sign tests vs A0 (acc): A5 +1/−1, A1 +1/−1, **A1L +3/−1** (p≈0.63);
+any-treatment-beats-A0 +4/−1 (p≈0.38). Each arm's single full solve landed on a
+DIFFERENT task — at seed=0/pass@1, per-task stochasticity rivals the arm effect.
+What IS solid: machinery engages exactly as designed (conflicts ~8.4/cell in A1/A1L
+vs 0; induction more than doubles clause yield 0.19→0.42; 98 inductions → 11 unique
+human-readable contracts; `harm=0` — verified contracts never hurt) at equal cost
+(~$49/arm).
+
+**To actually verify (pick per budget):** (a) **multi-seed** the band (seed 1,2 →
+pass@k / variance reduction; ~$150/seed for all 35×4) — highest information per
+dollar given the variance observed; (b) lift the floor: 8–16k thinking budget
+(slower/dearer per call) or `--max-grid 30+` to admit more/easier band tasks;
+(c) accept the mechanism-level result and reframe the claim as "contracts speed
+train convergence + add interpretability at zero cost/harm", which the data does
+support.
 
 ## 3b. What the earlier data showed
 
