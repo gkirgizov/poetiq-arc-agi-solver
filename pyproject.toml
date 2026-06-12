@@ -10,6 +10,7 @@ dependencies = [
     "asynciolimiter>=1.2.0",
     "python-dotenv>=1.1.1",
     "icontract>=2.7.1",
+    "z3-solver>=4.13",
 ]
 
 [dependency-groups]

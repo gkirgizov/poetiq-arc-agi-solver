@@ -1,0 +1,79 @@
+"""Strict parser for DSL pipelines.
+
+Grammar (one statement, steps separated by ';'):
+    pipeline := step (";" step)*
+    step     := NAME "(" args? ")"
+    args     := atom ("," atom)*
+    atom     := INT | IDENT | INT "->" INT      (the arrow form only for recolor)
+
+Positional args bind to the primitive's declared params in order; recolor takes
+any number of `a->b` pairs (unmapped colors stay identity). Errors carry a
+message suitable for grammar-echo feedback to the LLM.
+"""
+
+from __future__ import annotations
+
+import re
+
+from clarc.dsl import N_COLORS, REGISTRY, Pipeline, Step
+
+
+class DslError(ValueError):
+    pass
+
+
+_STEP_RE = re.compile(r"^\s*([a-z_][a-z0-9_]*)\s*\(\s*(.*?)\s*\)\s*$", re.S)
+_MAP_RE = re.compile(r"^(\d)\s*->\s*(\d)$")
+
+
+def extract_dsl_block(text: str) -> str | None:
+    """Pull the last ```dsl fenced block out of an LLM response."""
+    blocks = re.findall(r"```dsl\s*(.*?)```", text, re.S | re.I)
+    if blocks:
+        return blocks[-1].strip()
+    return None
+
+
+def parse_pipeline(src: str) -> Pipeline:
+    src = src.strip().rstrip(";")
+    if not src:
+        raise DslError("empty pipeline")
+    steps = []
+    for chunk in src.split(";"):
+        if chunk.strip():
+            steps.append(_parse_step(chunk))
+    if not steps:
+        raise DslError("empty pipeline")
+    return Pipeline(tuple(steps))
+
+
+def _parse_step(chunk: str) -> Step:
+    m = _STEP_RE.match(chunk)
+    if not m:
+        raise DslError(f"cannot parse step {chunk.strip()!r}: expected name(args)")
+    name, argstr = m.group(1), m.group(2)
+    prim = REGISTRY.get(name)
+    if prim is None:
+        raise DslError(f"unknown primitive {name!r}")
+    args = [a.strip() for a in argstr.split(",") if a.strip()] if argstr.strip() else []
+
+    if name == "recolor":
+        params: dict = {}
+        for a in args:
+            mm = _MAP_RE.match(a)
+            if not mm:
+                raise DslError(f"recolor arg {a!r}: expected digit->digit")
+            params[f"pi{int(mm.group(1))}"] = int(mm.group(2))
+        full = {f"pi{c}": params.get(f"pi{c}", c) for c in range(N_COLORS)}
+        return Step(name, full)
+
+    if len(args) != len(prim.params):
+        sig = ", ".join(p.name for p in prim.params)
+        raise DslError(f"{name} takes {len(prim.params)} arg(s) ({sig}), got {len(args)}")
+    params = {}
+    for spec, a in zip(prim.params, args):
+        val: object = int(a) if re.fullmatch(r"-?\d+", a) else a
+        if val not in spec.values:
+            raise DslError(f"{name}: {spec.name}={a!r} not in {spec.values}")
+        params[spec.name] = val
+    return Step(name, params)
