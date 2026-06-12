@@ -247,6 +247,7 @@ async def solve_task(
             seen_pipelines.add(dsl_text)
 
             # ---- pre-execution refutation (D1/D2): clause match, then CHECK ----
+            check_ms = 0.0
             if cfg.z3_refute and task_smt is not None:
                 fired = clause_store.match(pipeline) if clause_store is not None else []
                 refuted, nl, core = bool(fired), "", ()
@@ -255,7 +256,7 @@ async def solve_task(
                     nl, core = fired[0].nl, fired[0].core
                 else:
                     res = task_smt.check_pipeline(pipeline)
-                    ms = res.ms
+                    ms = check_ms = res.ms
                     if res.refuted:
                         refuted, core = True, res.core
                         if cfg.z3_learn and clause_store is not None:
@@ -300,6 +301,7 @@ async def solve_task(
             runlog.iterations_to_solve = it + 1
             runlog.add(IterRecord(iteration=it + 1, stage="solved", soft_score=1.0,
                                   dsl_text=dsl_text, executed=True,
+                                  solver_ms=(check_ms if cfg.dsl_required else 0.0),
                                   cost_usd=g.cost_usd, prompt_tokens=g.prompt_tokens,
                                   completion_tokens=g.completion_tokens))
             return finalize(ARCAGIResult(
@@ -408,6 +410,7 @@ async def solve_task(
             prop_admitted=prop_admitted,
             prop_cost_usd=prop_report.get("cost_usd", 0.0),
             dsl_text=dsl_text, executed=True, abs_weak=abs_weak,
+            solver_ms=(check_ms if cfg.dsl_required else 0.0),
         ))
 
     # ---- no full solve: return best-so-far (poetiq semantics) ----
