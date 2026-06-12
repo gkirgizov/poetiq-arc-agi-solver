@@ -24,6 +24,12 @@ class IterRecord:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     error: Optional[str] = None      # generator error (timeout / no-code-block / cli-error)
+    # --- predicate-loop history (for offline analysis of the contract machinery) ---
+    active: list[str] = field(default_factory=list)  # contract names injected this iter
+    proposed: Optional[str] = None   # induction outcome: proposal descr, or rejection
+                                     # stage ("no-parse" | "gate1-soundness" | "gate2-relevance")
+    prop_admitted: Optional[bool] = None  # None = no induction attempted this iter
+    prop_cost_usd: float = 0.0       # LLM cost of the proposal call (separate from solver gen)
 
 
 @dataclass
@@ -41,7 +47,8 @@ class RunLog:
 
     # ---- thesis-critical rollups ----
     def total_cost(self) -> float:
-        return sum(r.cost_usd for r in self.records)
+        # Includes induction-proposal calls: A1L's true cost, not just solver gens.
+        return sum(r.cost_usd + r.prop_cost_usd for r in self.records)
 
     def n_conflicts(self) -> int:
         return sum(1 for r in self.records if r.conflict_type in ("structural", "semantic"))

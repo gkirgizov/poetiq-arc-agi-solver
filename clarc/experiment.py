@@ -36,6 +36,16 @@ _IDENTITY = "def transform(grid):\n    return grid"
 _OUT = os.path.join(_HERE, "..", "output", "experiment")
 
 
+def _dump_full_log(out_dir, phase, tid, arm, log):
+    """Sidecar: the COMPLETE clarc_log (per-iteration records incl. violated/active
+    contracts, proposal outcomes, learned predicate code). runs.jsonl keeps only the
+    summary; this is the history needed to analyze/enhance the predicate loop."""
+    d = os.path.join(out_dir, "logs")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, f"{phase}_{tid}_{arm}.json"), "w", encoding="utf-8") as f:
+        json.dump(log, f, indent=1)
+
+
 def _load_checkpoint(path):
     """(phase, task, arm) -> record, from prior runs."""
     done = {}
@@ -172,6 +182,7 @@ async def main_async(args):
             if _void(rec):
                 print(f"  VOID A {tid}: no real attempt (genfail={rec['genfail']}) — not checkpointed")
                 return
+            _dump_full_log(args.out, "A", tid, "A0", res.get("clarc_log", {}))
             write(rec)
 
         await asyncio.gather(*[asyncio.create_task(_a(t)) for t in todo])
@@ -212,12 +223,24 @@ async def main_async(args):
         if _void(rec):
             print(f"  VOID B {arm} {tid}: no real attempt (genfail={rec['genfail']}) — not checkpointed")
             return
+        _dump_full_log(args.out, "B", tid, arm, res.get("clarc_log", {}))
         write(rec)
         print(f"  done {arm} {tid}: solved={rec['solved']} acc={rec['acc']} "
               f"conf={rec['conf']} learned={rec['n_learned']}")
 
     await asyncio.gather(*[asyncio.create_task(_b(t, a)) for t, a in cells])
     sink.close()
+
+    # Snapshot the cross-task contract library next to the results: the final
+    # accumulated invariants (with use/solve stats) of this experiment.
+    from clarc.library import _DEFAULT_PATH as _LIB_PATH
+    if os.path.exists(_LIB_PATH):
+        with open(_LIB_PATH, encoding="utf-8") as f:
+            lib = f.read()
+        with open(os.path.join(args.out, "contract_library.final.json"), "w",
+                  encoding="utf-8") as f:
+            f.write(lib)
+
     _report(runs_path, arms)
 
 

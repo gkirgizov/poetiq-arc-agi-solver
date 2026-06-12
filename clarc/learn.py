@@ -76,29 +76,42 @@ async def propose_contract(
     idx: int,
     seed: int,
     timeout_s: float = 5.0,
+    report: Optional[dict] = None,
 ) -> Optional[LearnedContract]:
-    """Ask, then GATE. Returns an admitted LearnedContract or None."""
+    """Ask, then GATE. Returns an admitted LearnedContract or None.
+
+    `report`, when given, is filled with the proposal's LLM cost, the proposed
+    descr, and where it died ("no-parse" | "gate1-soundness" | "gate2-relevance"
+    | "admitted") — the raw material for tuning the induction loop offline.
+    """
+    if report is None:
+        report = {}
     failed = next((f for f in failed_outputs if f is not None), None)
     if failed is None:
+        report.update(stage="no-failed-output", cost_usd=0.0, descr=None)
         return None
     g: GenOutput = await generator.generate(
         build_proposal_prompt(train_pairs, failed), seed=seed
     )
     descr, code = parse_proposal(g.code or "")
+    report.update(stage="no-parse", cost_usd=g.cost_usd, descr=descr or None)
     if code is None:
         return None
 
     # Gate 1: soundness — holds on every train pair.
     res_train = await verify_predicate(code, train_pairs, timeout_s=timeout_s)
     if res_train is None or not all(r is True for r in res_train):
+        report["stage"] = "gate1-soundness"
         return None
 
     # Gate 2: relevance — violated by >=1 failed (input, produced-output).
     fail_pairs = [(gi, fo) for (gi, _), fo in zip(train_pairs, failed_outputs) if fo is not None]
     res_fail = await verify_predicate(code, fail_pairs, timeout_s=timeout_s)
     if res_fail is None or not any(r is False for r in res_fail):
+        report["stage"] = "gate2-relevance"
         return None
 
+    report["stage"] = "admitted"
     return LearnedContract(name=f"induced_{idx}", descr=descr, code=code, origin="induced")
 
 

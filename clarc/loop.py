@@ -107,7 +107,15 @@ async def solve_task(
                 library.record_use(lc.code, verified=True, solved=runlog.solved)
             library.save()
         result["cost_usd"] = total_cost              # type: ignore[typeddict-unknown-key]
-        result["clarc_log"] = runlog.to_dict()       # type: ignore[typeddict-unknown-key]
+        log = runlog.to_dict()
+        if store is not None:
+            # Full induced/reused invariants WITH predicate code — the artifact the
+            # per-iteration history refers to; descriptions alone can't be re-run.
+            log["learned_contracts"] = [
+                {"name": lc.name, "descr": lc.descr, "code": lc.code, "origin": lc.origin}
+                for lc in store.learned
+            ]
+        result["clarc_log"] = log                    # type: ignore[typeddict-unknown-key]
         return result
 
     for it in range(cfg.max_iterations):
@@ -119,12 +127,16 @@ async def solve_task(
 
         # contract injection: dynamic store (fixed + discovered invariants) when
         # learning/inducing, else the static spec when only spec_inject is on.
+        active_contracts: list[str] = []
         if store is not None and (cfg.clause_inject or cfg.learn_contracts):
             block = store.render_for_prompt()
             if block:
                 message += "\n\n" + block
+                active_contracts = ([c.name for c in store.contracts]
+                                    + [lc.name for lc in store.learned])
         elif spec is not None and cfg.spec_inject and not spec.is_empty():
             message += "\n\n" + spec.render_for_prompt()
+            active_contracts = [c.name for c in spec.contracts]
 
         # poetiq-style feedback memory (baseline channel, present in all arms)
         if solutions:
@@ -213,6 +225,8 @@ async def solve_task(
 
         # ---- adaptive induction (Phase 4): when the known basis is SILENT (semantic
         #      conflict), ask for a new invariant and GATE it by sandboxed verification.
+        prop_report: dict = {}
+        prop_admitted: Optional[bool] = None
         if (cfg.learn_contracts and store is not None and conflict_type == "semantic"
                 and len(store.learned) < cfg.max_learned):
             sem_conflicts += 1
@@ -220,9 +234,10 @@ async def solve_task(
                 lc = await propose_contract(
                     generator, pairs_np, produced,
                     idx=len(store.learned), seed=cfg.seed + it,
-                    timeout_s=cfg.timeout_sandbox_s,
+                    timeout_s=cfg.timeout_sandbox_s, report=prop_report,
                 )
-                if lc is not None and store.add_learned(lc) and library is not None:
+                prop_admitted = lc is not None and store.add_learned(lc)
+                if prop_admitted and library is not None:
                     library.add(lc.name, lc.descr, lc.code)
                     library.save()
 
@@ -232,6 +247,11 @@ async def solve_task(
             conflict_type=conflict_type,
             pruned=pruned, harmful_prune=harmful, cost_usd=g.cost_usd,
             prompt_tokens=g.prompt_tokens, completion_tokens=g.completion_tokens,
+            active=active_contracts,
+            proposed=(f"{prop_report['stage']}: {prop_report['descr']}"
+                      if prop_report.get("descr") else prop_report.get("stage")),
+            prop_admitted=prop_admitted,
+            prop_cost_usd=prop_report.get("cost_usd", 0.0),
         ))
 
     # ---- no full solve: return best-so-far (poetiq semantics) ----
