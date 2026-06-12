@@ -186,6 +186,31 @@ Probes on the sonnet-floor task `20270e3b` + a 9-task one-shot floor-sample
   enough to retry-solve. *A1L cost pre-dates the proposal-cost accounting fix
   (commit dba9641) — true A1L cost is somewhat higher in ALL experiments so far.
 
+## 3e. Phase 5 — the DSL ⇄ SMT dual (in progress, 2026-06-12)
+
+Approved plan: `~/.claude/plans/from-all-the-existing-fluttering-iverson.md`.
+Built so far (commits f55f229, ea08843, f409b80; 79 tests green):
+- `absdomain.py` σ = (dims, cnt[10], n_obj, bbox, 5 sym bits) concrete + z3 sides;
+- `dsl.py` 25 typed primitives (numpy apply ⊕ z3 relational contract, havoc
+  documented), pipeline interpreter, `compile_pipeline` → existing sandbox path;
+- `smt.py` CHECK-exact/class (params SHARED across pairs → cross-pair class
+  refutations w/ labeled cores), SYNTH (shortest-first), verified position-lift;
+- `clauses.py` refutation → minimized core → verified generalization ladder →
+  clause store (syntactic firing + prompt rendering). LOO = robustness
+  ANNOTATION, not a gate (clauses are deduced certificates, unlike induced
+  spec predicates) — and OFF live for latency;
+- loop integration: D0 (DSL try-and-drop) / D1 (+pre-exec refutation) /
+  D2 (+clause learning) arms; stages dsl_invalid/dup/refuted; abs_weak
+  component log on concrete-fail-despite-SAT; `--devset` in experiment.py;
+- `probe_dsl.py` ($0 validation) + `audit_refutations.py` (soundness tripwire).
+
+Early probe measurements (2 structural tasks): refutation power 100%
+(603/603 non-fitting candidates refuted pre-execution), 0 false refutations,
+CHECK p50 ≈ 205 ms on real tasks, depth-2 coverage 0/2 (catalog gap — coverage
+is reported separately from mechanism claims by design). Full 40-task probe +
+the gated haiku runs (smoke → mini → full, pinned claude-haiku-4-5) are next;
+pre-registered STRONGER/LEARNS criteria in the plan file.
+
 ## 3d. Predicate-loop history capture (commit dba9641)
 
 Per user request, every FUTURE experiment cell now dumps its complete
