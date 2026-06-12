@@ -110,7 +110,10 @@ async def solve_task(
     if cfg.dsl_required and (cfg.z3_refute or cfg.z3_learn):
         facts = [(sigma_of(gi), sigma_of(go)) for gi, go in pairs_np]
         task_smt = TaskSMT(facts, timeout_ms=cfg.z3_timeout_ms)
-        clause_store = ClauseStore(task_smt, depth=cfg.dsl_depth_max)
+        # loo_annotate off live: it's a diagnostics-only annotation and costs
+        # several extra solver calls per learned clause (computable offline).
+        clause_store = ClauseStore(task_smt, depth=cfg.dsl_depth_max,
+                                   loo_annotate=False)
 
     # cross-task library: load + SOUND reuse (re-verify each candidate on THIS task).
     library: Optional[ContractLibrary] = None

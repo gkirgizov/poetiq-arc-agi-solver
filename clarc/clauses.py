@@ -77,6 +77,10 @@ class ClauseStore:
     smt: TaskSMT
     depth: int = 4
     clauses: list[Clause] = field(default_factory=list)
+    # LOO robustness is an annotation (see module docstring), not a gate; the
+    # extra per-pair re-queries cost ~0.2-2s each on real tasks, so live runs
+    # disable it and compute it offline when needed.
+    loo_annotate: bool = True
 
     def match(self, p: Pipeline) -> list[Clause]:
         return [c for c in self.clauses if c.matches(p)]
@@ -104,27 +108,25 @@ class ClauseStore:
                  for c in core if c.startswith("slot:")]
         for pos, prim in slots:
             if self.smt.prim_impossible_anywhere(prim, self.depth):
-                robust = all(
+                robust = (self.loo_annotate and len(self.smt.facts) >= 2 and all(
                     self.smt.prim_impossible_anywhere(prim, self.depth, drop_pair=i)
-                    for i in range(len(self.smt.facts))
-                ) if len(self.smt.facts) >= 2 else False
+                    for i in range(len(self.smt.facts))))
                 nl = (f"NO pipeline (up to {self.depth} steps) using `{prim}` "
                       f"anywhere can fit the training pairs — it contradicts their "
                       f"{_facts_nl(core)}")
                 return self._add(Clause("anywhere", prim, None, core, nl,
                                         loo_robust=robust, depth=self.depth))
         pos, prim = slots[0] if slots else (0, p.steps[0].name)
-        robust = all(
+        robust = (self.loo_annotate and len(self.smt.facts) >= 2 and all(
             self.smt.check_pipeline(p, with_params=False, drop_pair=i).refuted
-            for i in range(len(self.smt.facts))
-        ) if len(self.smt.facts) >= 2 else False
+            for i in range(len(self.smt.facts))))
         nl = (f"any pipeline with `{prim}` at step {pos + 1} of this shape is "
               f"impossible with ANY parameters — it contradicts the training "
               f"pairs' {_facts_nl(core)}")
         return self._add(Clause("at_pos", prim, pos, core, nl, loo_robust=robust))
 
     def _loo_exact(self, p: Pipeline) -> bool:
-        if len(self.smt.facts) < 2:
+        if not self.loo_annotate or len(self.smt.facts) < 2:
             return False
         return all(self.smt.check_pipeline(p, drop_pair=i).refuted
                    for i in range(len(self.smt.facts)))
