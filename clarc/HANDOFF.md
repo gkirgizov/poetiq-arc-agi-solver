@@ -204,12 +204,16 @@ Built so far (commits f55f229, ea08843, f409b80; 79 tests green):
   component log on concrete-fail-despite-SAT; `--devset` in experiment.py;
 - `probe_dsl.py` ($0 validation) + `audit_refutations.py` (soundness tripwire).
 
-Early probe measurements (2 structural tasks): refutation power 100%
-(603/603 non-fitting candidates refuted pre-execution), 0 false refutations,
-CHECK p50 ≈ 205 ms on real tasks, depth-2 coverage 0/2 (catalog gap — coverage
-is reported separately from mechanism claims by design). Full 40-task probe +
-the gated haiku runs (smoke → mini → full, pinned claude-haiku-4-5) are next;
-pre-registered STRONGER/LEARNS criteria in the plan file.
+**Full $0 probe over the 40-task devset (`output/probe-dsl-devset.log`):
+refutation power 99.4%** (13,552/13,639 non-fitting candidates refuted
+pre-execution), **0 false refutations in 13,641 checks** (the soundness gate
+for paid runs — PASSED), CHECK latency p50 137 ms / p95 442 ms / max 2.2 s,
+depth-2 coverage 2/40 (`195ba7dc`, `31d5ba1a`, both logic stratum) — the young
+catalog's exact-solve floor, reported separately from mechanism claims. The
+~0.6% non-refuted band is where concrete-fail learning + abs_weak logging
+operate. Next: gated haiku runs (smoke → mini → full, pinned
+claude-haiku-4-5-20251001); pre-registered STRONGER/LEARNS criteria in the
+plan file.
 
 ## 3d. Predicate-loop history capture (commit dba9641)
 
