@@ -165,11 +165,40 @@ Probes on the sonnet-floor task `20270e3b` + a 9-task one-shot floor-sample
   tasks where every bounded-sonnet arm scored 0 over 6–10 iters. The remaining
   ~45% (269e22fb, 28a6681f, 2b83f449, 6ffbe589 + timeouts) is a genuine
   mid-difficulty opus band — the differentiable surface contracts need.
-- **Projected full opus experiment** (Phase A 1-iter sweep 36 tasks ≈ $35/~4h →
-  band ~18; Phase B A0-vs-A1L × 6 iters ≈ $150–250 notional, 10–30h wall at
-  conc 3): viable but a half-day+ commitment with no working effort knob —
-  GATED on the user. The harness is ready (`--model claude-opus-4-8
-  --sweep-iters 1 --arms A0,A1L --timeout 900`, fresh `--out`).
+- **Full opus experiment RAN 2026-06-12** (`output/exp-arc2-opus48/`, fresh
+  contract library — the sonnet one is archived at
+  `output/contract_library.sonnet-s45-t4k.json`). Phase A: 28/36 returned
+  (8 voids = 900s timeouts), 11/28 one-shot-correct → band 14. Phase B
+  (14 × A0,A1L × ≤6 iters) finished in ~1.5h, ~$62:
+
+  | arm | test acc | train-solved | med iters | conf | induced | notional |
+  |---|---|---|---|---|---|---|
+  | A0  | **63.1%** | 11/14 | 1.0 | 0 | 0 | $29.78 |
+  | A1L | 58.3% | 11/14 | 1.0 | 24 | 35 (5 uniq) | $32.27* |
+
+  Paired: A0>A1L only on `e376de54` (1.0 vs 0 — A1L train-solved WITH 3 induced
+  contracts but test-failed: a hint of contract-steered overfit, invisible to the
+  `harm` metric which only counts pruning); A1L>A0 only on `b6f77b65` (0.33 vs 0).
+  **+1/−1/=12 — dead even.** Two structural lessons: (1) at opus strength the
+  1-shot band is UNSTABLE — Phase B re-solved 8/14 "failures" at med_iters=1,
+  i.e. retry variance, not feedback, drives most recovery; (2) the contract
+  effect visible in the weak-model regime washes out when the model is strong
+  enough to retry-solve. *A1L cost pre-dates the proposal-cost accounting fix
+  (commit dba9641) — true A1L cost is somewhat higher in ALL experiments so far.
+
+## 3d. Predicate-loop history capture (commit dba9641)
+
+Per user request, every FUTURE experiment cell now dumps its complete
+predicate-loop history to `<out>/logs/<phase>_<task>_<arm>.json`: per-iteration
+injected contract set (`active`), fired violations (`violated`), induction
+outcome with gate-rejection stage (`proposed`: no-parse | gate1-soundness |
+gate2-relevance | admitted, `prop_admitted`, `prop_cost_usd`), and the admitted
+contracts WITH predicate code (`learned_contracts`); the cross-task library is
+snapshotted to `<out>/contract_library.final.json` at run end. For
+`exp-arc2-opus48` itself this landed too late — only runs.jsonl summaries and
+the final library (with code) exist; the per-iteration history of the four
+divergent cells (`e376de54`, `b6f77b65`, `2b83f449`, `abc82100`) is the main
+loss. A targeted A1L replay of those 4 tasks (~$25) would recover it if wanted.
 
 ## 3b. What the earlier data showed
 
