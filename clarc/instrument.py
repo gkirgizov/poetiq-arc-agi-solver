@@ -30,6 +30,17 @@ class IterRecord:
                                      # stage ("no-parse" | "gate1-soundness" | "gate2-relevance")
     prop_admitted: Optional[bool] = None  # None = no induction attempted this iter
     prop_cost_usd: float = 0.0       # LLM cost of the proposal call (separate from solver gen)
+    # --- DSL ⇄ SMT dual (D-arms; stages "dsl_invalid" | "dup" | "refuted") ---
+    dsl_text: Optional[str] = None   # normalized pipeline text (or raw snippet on parse fail)
+    executed: bool = False           # sandbox actually ran this candidate
+    dup_hit: bool = False            # exact duplicate of an earlier candidate
+    refuted: bool = False            # pre-execution refutation (clause or z3)
+    refutation_core: list[str] = field(default_factory=list)
+    clause_fired: list[str] = field(default_factory=list)   # stored clauses that matched
+    clause_learned: Optional[str] = None                    # NL of a newly learned clause
+    class_pruned: int = 0            # skeletons blocked by the learned clause (depth-bounded)
+    solver_ms: float = 0.0
+    abs_weak: list[str] = field(default_factory=list)  # σ components the abstraction missed
 
 
 @dataclass
@@ -70,6 +81,23 @@ class RunLog:
         return sum(1 for r in self.records
                    if r.stage in ("gen_timeout", "gen_error", "parse_fail"))
 
+    # ---- DSL ⇄ SMT rollups (zero for non-D arms) ----
+    def n_refuted(self) -> int:
+        return sum(1 for r in self.records if r.refuted)
+
+    def n_executed(self) -> int:
+        return sum(1 for r in self.records if r.executed)
+
+    def n_dsl_invalid(self) -> int:
+        return sum(1 for r in self.records if r.stage == "dsl_invalid")
+
+    def n_dup(self) -> int:
+        return sum(1 for r in self.records if r.dup_hit)
+
+    def clause_reuse(self) -> int:
+        """Refutations served by an ALREADY-stored clause (no fresh z3 call)."""
+        return sum(1 for r in self.records if r.clause_fired)
+
     def to_dict(self) -> dict:
         return {
             "task_id": self.task_id,
@@ -85,6 +113,12 @@ class RunLog:
             "n_pruned": self.n_pruned(),
             "n_harmful": self.n_harmful(),
             "n_gen_failures": self.n_gen_failures(),
+            "n_refuted": self.n_refuted(),
+            "n_executed": self.n_executed(),
+            "n_dsl_invalid": self.n_dsl_invalid(),
+            "n_dup": self.n_dup(),
+            "clause_reuse": self.clause_reuse(),
+            "solver_ms_total": round(sum(r.solver_ms for r in self.records), 1),
             "total_cost_usd": round(self.total_cost(), 4),
             "records": [asdict(r) for r in self.records],
         }

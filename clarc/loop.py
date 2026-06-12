@@ -31,10 +31,15 @@ from arc_agi.solve_coding import (
 )
 from arc_agi.types import ARCAGIResult, ARCAGISolution, RunResult
 
+from clarc.absdomain import sigma_of
 from clarc.analyze import parse_grid, render_violation_feedback
+from clarc.clauses import ClauseStore, _facts_nl
+from clarc.dsl import compile_pipeline, render_catalog
+from clarc.dslparse import DslError, extract_dsl_block, parse_pipeline
 from clarc.instrument import IterRecord, RunLog
 from clarc.learn import induced_violations, propose_contract, verify_on_pairs
 from clarc.library import ContractLibrary
+from clarc.smt import TaskSMT
 from clarc.spec import extract_spec, loo_trusted
 from clarc.store import LearnedStore
 from clarc.types import ClarcConfig, Generator, LearnedContract
@@ -47,6 +52,29 @@ Write exactly one function `transform(grid: np.ndarray) -> np.ndarray` that maps
 input grid to its output grid, consistent with ALL the examples. Use numpy/scipy.
 Output EXACTLY one ```python code block and nothing else. Make a single best attempt
 — do not deliberate at length or explore many alternatives.
+
+$$problem$$
+'''
+
+# DSL-emission prompt (D-arms, cfg.dsl_required): the model must answer in the
+# typed pipeline language, so candidates are machine-checkable BEFORE execution.
+DSL_SOLVER_PROMPT = '''Solve this Abstract Reasoning (ARC) puzzle by emitting ONE pipeline in the tiny DSL below.
+
+A pipeline is a few steps separated by ';', applied LEFT TO RIGHT to the input grid,
+producing the output grid. Available primitives (use ONLY these, args must be in-domain):
+
+''' + render_catalog() + '''
+
+Format rules:
+- Answer with EXACTLY ONE fenced block tagged dsl, and nothing else after it.
+- recolor args look like: recolor(1->2, 5->0)   (unmapped colors stay unchanged)
+- Example of a complete, correctly formatted answer:
+
+```dsl
+crop_bbox(); scale(2,2)
+```
+
+Make a single best attempt — short pipelines (1-3 steps) are usually right.
 
 $$problem$$
 '''
@@ -74,6 +102,15 @@ async def solve_task(
     pairs_np = [(np.asarray(gi, dtype=int), np.asarray(go, dtype=int))
                 for gi, go in zip(train_in, train_out)]
     sem_conflicts = 0
+
+    # --- DSL ⇄ SMT dual (D-arms) -------------------------------------------
+    task_smt: Optional[TaskSMT] = None
+    clause_store: Optional[ClauseStore] = None
+    seen_pipelines: set[str] = set()
+    if cfg.dsl_required and (cfg.z3_refute or cfg.z3_learn):
+        facts = [(sigma_of(gi), sigma_of(go)) for gi, go in pairs_np]
+        task_smt = TaskSMT(facts, timeout_ms=cfg.z3_timeout_ms)
+        clause_store = ClauseStore(task_smt, depth=cfg.dsl_depth_max)
 
     # cross-task library: load + SOUND reuse (re-verify each candidate on THIS task).
     library: Optional[ContractLibrary] = None
@@ -115,6 +152,13 @@ async def solve_task(
                 {"name": lc.name, "descr": lc.descr, "code": lc.code, "origin": lc.origin}
                 for lc in store.learned
             ]
+        if clause_store is not None:
+            log["learned_clauses"] = [
+                {"kind": c.kind, "prim": c.prim, "pos": c.pos, "nl": c.nl,
+                 "loo_robust": c.loo_robust, "core": list(c.core)}
+                for c in clause_store.clauses
+            ]
+            log["n_clauses"] = len(clause_store.clauses)
         result["clarc_log"] = log                    # type: ignore[typeddict-unknown-key]
         return result
 
@@ -122,8 +166,15 @@ async def solve_task(
         # ---- build prompt ----
         example = _make_example(train_in, train_out, test_in)
         problem_str = format_problem(example, cfg.shuffle_examples, cfg.seed + it)
-        base_prompt = LEAN_SOLVER_PROMPT if cfg.lean_prompt else SOLVER_PROMPT_1
+        base_prompt = (DSL_SOLVER_PROMPT if cfg.dsl_required
+                       else LEAN_SOLVER_PROMPT if cfg.lean_prompt else SOLVER_PROMPT_1)
         message = _build_prompt(base_prompt, problem=problem_str)
+
+        # learned refutation clauses (D2): machine-checked impossibilities.
+        if clause_store is not None and cfg.z3_inject:
+            block = clause_store.render_for_prompt(cfg.max_clauses)
+            if block:
+                message += "\n\n" + block
 
         # contract injection: dynamic store (fixed + discovered invariants) when
         # learning/inducing, else the static spec when only spec_inject is on.
@@ -154,15 +205,85 @@ async def solve_task(
         total_cost += g.cost_usd
         total_ptok += g.prompt_tokens
         total_ctok += g.completion_tokens
-        if g.code is None:
-            stage = ("gen_timeout" if g.error == "generator-timeout"
-                     else "parse_fail" if g.error in (None, "no-code-block")
-                     else "gen_error")
-            runlog.add(IterRecord(iteration=it + 1, stage=stage, error=g.error,
-                                  cost_usd=g.cost_usd, prompt_tokens=g.prompt_tokens,
-                                  completion_tokens=g.completion_tokens))
-            continue
-        code = g.code
+
+        pipeline = None          # set in DSL mode once a fresh candidate survives
+        dsl_text: Optional[str] = None
+        if cfg.dsl_required:
+            if g.error not in (None, "no-code-block"):
+                stage = ("gen_timeout" if g.error == "generator-timeout" else "gen_error")
+                runlog.add(IterRecord(iteration=it + 1, stage=stage, error=g.error,
+                                      cost_usd=g.cost_usd,
+                                      prompt_tokens=g.prompt_tokens,
+                                      completion_tokens=g.completion_tokens))
+                continue
+            src = extract_dsl_block(g.raw or "")
+            try:
+                if src is None:
+                    raise DslError("no ```dsl fenced block found")
+                pipeline = parse_pipeline(src)
+            except DslError as e:
+                fb = (f"INVALID DSL ({e}). Answer with exactly one ```dsl block, "
+                      f"steps separated by ';', only catalog primitives with "
+                      f"in-domain args, e.g.: crop_bbox(); scale(2,2)")
+                solutions.append(ARCAGISolution(code=(src or (g.raw or "")[-300:]),
+                                                feedback=fb, score=0.0))
+                runlog.add(IterRecord(iteration=it + 1, stage="dsl_invalid",
+                                      error=str(e), dsl_text=src,
+                                      cost_usd=g.cost_usd, prompt_tokens=g.prompt_tokens,
+                                      completion_tokens=g.completion_tokens))
+                continue
+            dsl_text = pipeline.pretty()
+            if dsl_text in seen_pipelines:
+                # exact duplicate: its eval/feedback is already in `solutions` —
+                # don't execute again (keeps "executions avoided" honest).
+                runlog.add(IterRecord(iteration=it + 1, stage="dup", dup_hit=True,
+                                      dsl_text=dsl_text, cost_usd=g.cost_usd,
+                                      prompt_tokens=g.prompt_tokens,
+                                      completion_tokens=g.completion_tokens))
+                continue
+            seen_pipelines.add(dsl_text)
+
+            # ---- pre-execution refutation (D1/D2): clause match, then CHECK ----
+            if cfg.z3_refute and task_smt is not None:
+                fired = clause_store.match(pipeline) if clause_store is not None else []
+                refuted, nl, core = bool(fired), "", ()
+                ms, learned_nl, blocked = 0.0, None, 0
+                if fired:
+                    nl, core = fired[0].nl, fired[0].core
+                else:
+                    res = task_smt.check_pipeline(pipeline)
+                    ms = res.ms
+                    if res.refuted:
+                        refuted, core = True, res.core
+                        if cfg.z3_learn and clause_store is not None:
+                            cl = clause_store.learn_from_refutation(pipeline, res.core)
+                            nl, learned_nl = cl.nl, cl.nl
+                            blocked = cl.n_blocked(cfg.dsl_depth_max)
+                        else:
+                            nl = (f"with these steps the training pairs' "
+                                  f"{_facts_nl(res.core)} cannot be reproduced")
+                if refuted:
+                    fb = f"PROVABLY IMPOSSIBLE (machine-checked, was not executed): {nl}"
+                    solutions.append(ARCAGISolution(code=dsl_text, feedback=fb, score=0.0))
+                    runlog.add(IterRecord(
+                        iteration=it + 1, stage="refuted", dsl_text=dsl_text,
+                        refuted=True, refutation_core=list(core),
+                        clause_fired=[c.nl for c in fired], clause_learned=learned_nl,
+                        class_pruned=blocked, solver_ms=ms, cost_usd=g.cost_usd,
+                        prompt_tokens=g.prompt_tokens,
+                        completion_tokens=g.completion_tokens))
+                    continue
+            code = compile_pipeline(pipeline)
+        else:
+            if g.code is None:
+                stage = ("gen_timeout" if g.error == "generator-timeout"
+                         else "parse_fail" if g.error in (None, "no-code-block")
+                         else "gen_error")
+                runlog.add(IterRecord(iteration=it + 1, stage=stage, error=g.error,
+                                      cost_usd=g.cost_usd, prompt_tokens=g.prompt_tokens,
+                                      completion_tokens=g.completion_tokens))
+                continue
+            code = g.code
 
         # ---- evaluate on train + test ----
         train_res, test_res = await _eval_on_train_and_test(
@@ -175,6 +296,7 @@ async def solve_task(
             runlog.solved = True
             runlog.iterations_to_solve = it + 1
             runlog.add(IterRecord(iteration=it + 1, stage="solved", soft_score=1.0,
+                                  dsl_text=dsl_text, executed=True,
                                   cost_usd=g.cost_usd, prompt_tokens=g.prompt_tokens,
                                   completion_tokens=g.completion_tokens))
             return finalize(ARCAGIResult(
@@ -198,6 +320,33 @@ async def solve_task(
             if store is not None and cfg.clause_learn:
                 store.note(violated)
 
+        # ---- DSL concrete failure despite abstract SAT: block the instance and
+        #      log WHICH σ components the abstraction let through (abs_weak —
+        #      the abstraction-refinement worklist).
+        abs_weak: list[str] = []
+        if pipeline is not None:
+            if clause_store is not None and cfg.z3_learn:
+                clause_store.add_concrete_block(pipeline)
+            weak: set[str] = set()
+            for r, (_, go) in zip(train_res, pairs_np):
+                if r["success"]:
+                    continue
+                po = parse_grid(r)
+                if po is None:
+                    continue
+                sp, sg = sigma_of(po), sigma_of(go)
+                if (sp.h, sp.w) != (sg.h, sg.w):
+                    weak.add("dims")
+                if sp.cnt != sg.cnt:
+                    weak.add("hist")
+                if sp.n_obj != sg.n_obj:
+                    weak.add("objects")
+                if (sp.bbox_h, sp.bbox_w) != (sg.bbox_h, sg.bbox_w):
+                    weak.add("bbox")
+                if sp.sym != sg.sym:
+                    weak.add("sym")
+            abs_weak = sorted(weak)
+
         # ---- feedback: poetiq diff, prefixed with the precise structured reasons ----
         feedback, score = _build_feedback(train_res, train_in, train_out)
         if (violated or violated_learned) and (cfg.clause_learn or cfg.learn_contracts):
@@ -214,7 +363,10 @@ async def solve_task(
             pruned = True
             harmful = best_result is not None and score > best_score
 
-        solutions.append(ARCAGISolution(code=code, feedback=feedback, score=score))
+        # In DSL mode the feedback memory carries the model's own language, not
+        # the compiled python.
+        solutions.append(ARCAGISolution(code=(dsl_text or code), feedback=feedback,
+                                        score=score))
 
         if not pruned and score >= best_score:
             best_score = score
@@ -252,6 +404,7 @@ async def solve_task(
                       if prop_report.get("descr") else prop_report.get("stage")),
             prop_admitted=prop_admitted,
             prop_cost_usd=prop_report.get("cost_usd", 0.0),
+            dsl_text=dsl_text, executed=True, abs_weak=abs_weak,
         ))
 
     # ---- no full solve: return best-so-far (poetiq semantics) ----

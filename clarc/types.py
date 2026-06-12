@@ -89,6 +89,13 @@ class ClarcConfig:
     clause_inject: bool = False
     clause_prune: bool = False
     dsl_required: bool = False
+    # --- DSL ⇄ SMT dual (Phase 5; D-arms; needs dsl_required) ---
+    z3_refute: bool = False        # pre-execution CHECK; refuted candidates never run
+    z3_learn: bool = False         # conflicts -> generalized blocking clauses
+    z3_inject: bool = True         # render learned clauses into the prompt
+    dsl_depth_max: int = 4         # bound for SYNTH/position-lift queries
+    z3_timeout_ms: int = 2000      # solver cap; timeout degrades to "not refuted"
+    max_clauses: int = 16          # prompt block cap (solver always sees all)
     # --- adaptive contract learning (Phase 4) ---
     learn_contracts: bool = False     # induce new invariants from semantic conflicts
     max_learned: int = 3              # cap induced contracts per task

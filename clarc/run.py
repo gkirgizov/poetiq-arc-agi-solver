@@ -34,7 +34,7 @@ _DATASETS = {
     "2025-eval": ("arc-prize-2025", "evaluation"),
 }
 
-# Ablation arms -> ingredient flags (A4 dsl_required is a later phase).
+# Ablation arms -> ingredient flags.
 ARMS = {
     "A0": dict(),                                                              # baseline
     "A5": dict(spec_inject=True),                                             # spec-only
@@ -43,6 +43,10 @@ ARMS = {
     "A1": dict(spec_inject=True, clause_learn=True, clause_inject=True),      # full (soft)
     "A1L": dict(spec_inject=True, clause_learn=True, clause_inject=True,      # + adaptive induction
                 learn_contracts=True),
+    # --- DSL ⇄ SMT dual (Phase 5): LLM emits typed pipelines ---
+    "D0": dict(dsl_required=True),                                # try-and-drop baseline (the A4 tax)
+    "D1": dict(dsl_required=True, z3_refute=True),                # + pre-execution refutation
+    "D2": dict(dsl_required=True, z3_refute=True, z3_learn=True),  # + clause learning (+prompt inject)
 }
 
 

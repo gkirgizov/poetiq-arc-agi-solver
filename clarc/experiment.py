@@ -78,7 +78,12 @@ def _rec(phase, tid, arm, log, acc):
             "acc": acc, "conf": log.get("n_conflicts", 0), "yield": log.get("clause_yield", 0.0),
             "learned": log.get("learned", []), "n_learned": log.get("n_learned", 0),
             "pruned": log.get("n_pruned", 0), "harm": log.get("n_harmful", 0),
-            "genfail": log.get("n_gen_failures", 0), "cost": log.get("total_cost_usd", 0.0)}
+            "genfail": log.get("n_gen_failures", 0), "cost": log.get("total_cost_usd", 0.0),
+            # DSL ⇄ SMT dual rollups (zero/absent for A-arms)
+            "refuted": log.get("n_refuted", 0), "exec": log.get("n_executed", 0),
+            "inval": log.get("n_dsl_invalid", 0), "dup": log.get("n_dup", 0),
+            "clauses": log.get("n_clauses", 0), "reuse": log.get("clause_reuse", 0),
+            "solver_ms": log.get("solver_ms_total", 0.0)}
 
 
 def _void(rec):
@@ -125,9 +130,20 @@ def _report(path, arms):
         genfail = sum(r["genfail"] for r in recs.values())
         cost = sum(r["cost"] or 0 for r in recs.values())
         meanyield = statistics.mean([r["yield"] for r in recs.values()])
-        print(f"[{arm:3s}] acc={acc/n*100:5.1f}% solved={solved}/{n} med_iters={_med(iters_solved):.1f} "
-              f"conf={conf} yield={meanyield:.2f} learned={nlearned} prune={pruned} harm={harm} "
-              f"genfail={genfail} ${cost:.2f}")
+        line = (f"[{arm:3s}] acc={acc/n*100:5.1f}% solved={solved}/{n} med_iters={_med(iters_solved):.1f} "
+                f"conf={conf} yield={meanyield:.2f} learned={nlearned} prune={pruned} harm={harm} "
+                f"genfail={genfail} ${cost:.2f}")
+        refuted = sum(r.get("refuted", 0) for r in recs.values())
+        if arm.startswith("D"):
+            execd = sum(r.get("exec", 0) for r in recs.values())
+            inval = sum(r.get("inval", 0) for r in recs.values())
+            dup = sum(r.get("dup", 0) for r in recs.values())
+            clauses = sum(r.get("clauses", 0) for r in recs.values())
+            reuse = sum(r.get("reuse", 0) for r in recs.values())
+            sms = sum(r.get("solver_ms", 0.0) for r in recs.values())
+            line += (f"\n      refuted={refuted} exec={execd} inval={inval} dup={dup} "
+                     f"clauses={clauses} reuse={reuse} solver={sms/1000:.1f}s")
+        print(line)
     induced = sorted({d for arm in arms for r in B.get(arm, {}).values() for d in r["learned"]})
     print(f"\nInduced contracts ({len(induced)}):")
     for d in induced:
@@ -164,8 +180,15 @@ async def main_async(args):
 
     sem = asyncio.Semaphore(args.concurrency)
 
-    # ---------- Phase A (skip if --band given) ----------
-    if args.band:
+    # ---------- Phase A (skip if --band or --devset given) ----------
+    if args.devset:
+        from clarc import devset
+        band = devset.all_ids()
+        missing = [t for t in band if t not in challenges]
+        if missing:
+            raise SystemExit(f"--devset ids missing from --data {args.data}: {missing[:4]}…")
+        print(f"DEVSET band: {len(band)} tasks (strata in clarc/devset_ids.json)")
+    elif args.band:
         band = [t for t in args.band.split(",") if t]
     else:
         cand = list(challenges.keys())[: args.n]
@@ -254,6 +277,8 @@ def main():
     p.add_argument("--thinking", default=None, choices=["disabled", "adaptive"],
                    help="--thinking CLI flag; 'disabled' turns extended thinking off")
     p.add_argument("--band", default="", help="explicit comma-separated band (skip Phase A)")
+    p.add_argument("--devset", action="store_true",
+                   help="band := the curated 40-task devset (clarc/devset_ids.json)")
     p.add_argument("--n", type=int, default=50)
     p.add_argument("--sweep-iters", type=int, default=3, dest="sweep_iters")
     p.add_argument("--iters", type=int, default=8)
