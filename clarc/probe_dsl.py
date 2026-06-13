@@ -23,6 +23,7 @@ import numpy as np
 from clarc import devset
 from clarc.absdomain import sigma_of
 from clarc.dsl import REGISTRY, DslRuntimeError, Pipeline, Step, run_pipeline
+from clarc.dsltypes import Ty
 from clarc.run import _load
 from clarc.smt import TaskSMT
 
@@ -51,29 +52,47 @@ def _task_recolor_steps(pairs) -> list[Step]:
     return [Step("recolor", params)]
 
 
-def _candidates(pairs, depth: int, sample: int, rng) -> tuple[list[Pipeline], list[Pipeline]]:
-    """(exhaustive depth-1 with full params, sampled depth-2 with capped params)."""
-    singles: list[Step] = []
+def _grid_steps(pairs, cap=None) -> list[Step]:
+    """All Grid→Grid leaf steps (the M1 whole-grid primitives)."""
+    out: list[Step] = []
     for prim in REGISTRY.values():
-        if prim.name == "identity":
+        if prim.in_type != Ty.GRID or prim.out_type != Ty.GRID or prim.name == "identity":
             continue
         if prim.name == "recolor":
-            singles += _task_recolor_steps(pairs)
+            out += _task_recolor_steps(pairs)
             continue
-        singles += [Step(prim.name, g) for g in _param_grid(prim)]
-    d1 = [Pipeline((s,)) for s in singles]
+        out += [Step(prim.name, g) for g in _param_grid(prim, cap=cap)]
+    return out
+
+
+def _sel_steps() -> list[Step]:
+    """All Selection→Selection object-layer steps (M5)."""
+    out: list[Step] = []
+    for prim in REGISTRY.values():
+        if prim.in_type == Ty.SELECTION and prim.out_type == Ty.SELECTION:
+            out += [Step(prim.name, g) for g in _param_grid(prim)]
+    return out
+
+
+def _candidates(pairs, depth: int, sample: int, rng) -> tuple[list[Pipeline], list[Pipeline]]:
+    """All TYPE-VALID pipelines up to `depth`: whole-grid sequences plus object
+    pipelines `objects(); <1-2 selection ops>; render()`."""
+    grid_steps = _grid_steps(pairs)
+    sel_steps = _sel_steps()
+    OBJ, REN = Step("objects", {}), Step("render", {})
+
+    d1 = [Pipeline((s,)) for s in grid_steps]                          # 1 whole-grid op
+    d1 += [Pipeline((OBJ, s, REN)) for s in sel_steps]                 # 1 object op
     if depth < 2:
         return d1, []
-    capped: list[Step] = []
-    for prim in REGISTRY.values():
-        if prim.name == "identity":
-            continue
-        if prim.name == "recolor":
-            capped += _task_recolor_steps(pairs)
-            continue
-        capped += [Step(prim.name, g) for g in _param_grid(prim, cap=4)]
+
+    capped = _grid_steps(pairs, cap=4)
     idx = rng.choice(len(capped), size=(min(sample, len(capped) ** 2), 2))
-    d2 = [Pipeline((capped[i], capped[j])) for i, j in idx]
+    d2 = [Pipeline((capped[i], capped[j])) for i, j in idx]            # 2 whole-grid ops
+    # object pipelines with two selection ops (e.g. select_largest; recolor_all)
+    if len(sel_steps) >= 2:
+        sidx = rng.choice(len(sel_steps), size=(min(sample, len(sel_steps) ** 2), 2))
+        d2 += [Pipeline((OBJ, sel_steps[i], sel_steps[j], REN)) for i, j in sidx]
     return d1, d2
 
 
