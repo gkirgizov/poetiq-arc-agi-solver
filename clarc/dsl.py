@@ -393,8 +393,10 @@ def _apply_compress_uniform(g, params):
 
 
 def _enc_compress_uniform(si, so, P):
-    cs = [so.h <= si.h, so.w <= si.w, so.h >= 1, so.w >= 1,
-          so.n_obj == si.n_obj]
+    # dims shrink, palette preserved, every count drops (only whole lines removed).
+    # n_obj is HAVOC: dropping duplicate lines can change which color is the
+    # most-frequent background, so the object count is not predictable here.
+    cs = [so.h <= si.h, so.w <= si.w, so.h >= 1, so.w >= 1]
     cs += [(so.cnt[c] > 0) == (si.cnt[c] > 0) for c in range(N_COLORS)]
     cs += [so.cnt[c] <= si.cnt[c] for c in range(N_COLORS)]
     return cs
@@ -759,5 +761,12 @@ def render_catalog() -> str:
             sig = f"{prim.name}({', '.join(p.name + '∈' + '|'.join(map(str, p.values)) for p in prim.params)})"
         else:
             sig = f"{prim.name}()"
-        lines.append(f"  {sig:58s} {prim.doc}")
+        tag = "" if prim.in_type.value == "Grid" == prim.out_type.value else \
+              f"  [{prim.in_type.value}→{prim.out_type.value}]"
+        lines.append(f"  {sig:54s} {prim.doc}{tag}")
     return "\n".join(lines)
+
+
+# Register the object-layer combinators (M5). Imported at the BOTTOM so `dsl` is
+# fully initialized when dslobj imports _reg/Primitive/_case back from it.
+from clarc import dslobj  # noqa: E402,F401

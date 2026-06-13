@@ -27,36 +27,62 @@ from clarc.dsl import (
     param_index,
     run_pipeline,
 )
+from clarc.dslobj import grid_to_selection, to_grid
 from clarc.dslparse import DslError, extract_dsl_block, parse_pipeline
+from clarc.dsltypes import Ty
 
 rng = np.random.default_rng(7)
 
 N_GRIDS = 60  # per primitive; x param samples
 
 
-def _random_grid() -> np.ndarray:
-    h, w = rng.integers(1, 13), rng.integers(1, 13)
-    n_colors = int(rng.integers(1, 5))
-    colors = rng.choice(10, size=n_colors, replace=False)
-    g = rng.choice(colors, size=(h, w))
-    if rng.random() < 0.3:  # bias toward sparse "objecty" grids
-        m = rng.random((h, w)) < 0.7
+def _random_grid(r=None) -> np.ndarray:
+    r = r or rng
+    h, w = r.integers(1, 13), r.integers(1, 13)
+    n_colors = int(r.integers(1, 5))
+    colors = r.choice(10, size=n_colors, replace=False)
+    g = r.choice(colors, size=(h, w))
+    if r.random() < 0.3:  # bias toward sparse "objecty" grids
+        m = r.random((h, w)) < 0.7
         g = np.where(m, colors[0], g)
-    if rng.random() < 0.15 and h == w:  # occasionally symmetric squares
+    if r.random() < 0.15 and h == w:  # occasionally symmetric squares
         g = np.maximum(g, g.T)
     return g.astype(int)
+
+
+def _random_multiobj_grid(r=None) -> np.ndarray:
+    """Sparse grid with several distinct small objects — stresses osz/ocol."""
+    r = r or rng
+    h, w = int(r.integers(6, 14)), int(r.integers(6, 14))
+    g = np.zeros((h, w), dtype=int)
+    for _ in range(int(r.integers(2, 7))):
+        i, j = int(r.integers(0, h)), int(r.integers(0, w))
+        col = int(r.integers(1, 10))
+        g[i:i + int(r.integers(1, 3)), j:j + int(r.integers(1, 3))] = col
+    return g
 
 
 def _random_params(prim) -> dict:
     return {p.name: p.values[rng.integers(0, len(p.values))] for p in prim.params}
 
 
+def _input_for(prim, g):
+    """Provide the value of the primitive's in_type (M5: GRID or SELECTION)."""
+    return grid_to_selection(g) if prim.in_type == Ty.SELECTION else g
+
+
 def _check_sound(prim, g: np.ndarray, params: dict) -> None:
+    from clarc.absdomain import MAX_DIM
     try:
-        out = run_pipeline(Pipeline((Step(prim.name, params),)), g)
+        val = _input_for(prim, g)
+        out = prim.apply(val, params)
     except DslRuntimeError:
         return  # precondition failed concretely — nothing to verify
-    si_c, so_c = sigma_of(g), sigma_of(out)
+    og = to_grid(out)
+    if og.shape[0] > MAX_DIM or og.shape[1] > MAX_DIM:
+        return  # output out of σ's bounded domain (run_pipeline would reject it)
+    # σ describes the rendered grid on both sides of the dual.
+    si_c, so_c = sigma_of(to_grid(val)), sigma_of(og)
 
     s = z3.Solver()
     si, so = ZState("i"), ZState("o")
@@ -83,21 +109,32 @@ def test_primitive_contract_sound(name):
     prim = REGISTRY[name]
     for _ in range(N_GRIDS):
         _check_sound(prim, _random_grid(), _random_params(prim))
+        _check_sound(prim, _random_multiobj_grid(), _random_params(prim))
 
 
 def test_pipeline_contract_sound_composed():
-    """Two-step pipelines: composition must also be satisfiable end-to-end
-    (intermediate state free, only endpoints pinned)."""
+    """Two-step TYPE-COMPATIBLE pipelines: composition must be satisfiable
+    end-to-end (intermediate state free, only endpoints pinned)."""
+    from clarc.absdomain import MAX_DIM
+    lrng = np.random.default_rng(11)   # local rng: deterministic regardless of test order
     names = sorted(REGISTRY)
-    for _ in range(40):
-        a, b = rng.choice(names, 2)
+    for _ in range(300):
+        a, b = lrng.choice(names, 2)
         pa, pb = REGISTRY[a], REGISTRY[b]
-        params_a, params_b = _random_params(pa), _random_params(pb)
-        g = _random_grid()
-        pipe = Pipeline((Step(a, params_a), Step(b, params_b)))
+        if pa.in_type != Ty.GRID or pa.out_type != pb.in_type:
+            continue  # not a well-typed Grid→…→? composition
+        params_a = {p.name: p.values[lrng.integers(0, len(p.values))] for p in pa.params}
+        params_b = {p.name: p.values[lrng.integers(0, len(p.values))] for p in pb.params}
+        g = _random_grid(lrng) if lrng.random() < 0.5 else _random_multiobj_grid(lrng)
         try:
-            out = run_pipeline(pipe, g)
+            out_val = pa.apply(g, params_a)
+            mid = to_grid(out_val)
+            out = to_grid(pb.apply(out_val, params_b))
         except DslRuntimeError:
+            continue
+        # run_pipeline bounds EVERY step; skip if any grid (incl. the intermediate)
+        # exceeds σ's domain — such a pipeline never executes for real.
+        if max(mid.shape) > MAX_DIM or max(out.shape) > MAX_DIM:
             continue
         s = z3.Solver()
         s0, s1, s2 = ZState("s0"), ZState("s1"), ZState("s2")
@@ -136,13 +173,22 @@ def test_parse_errors():
             parse_pipeline(bad)
 
 
-def test_whole_grid_prims_are_grid_to_grid():
-    # Every M1 primitive threads Grid->Grid, so any sequence typechecks.
-    from clarc.dsl import REGISTRY
-    from clarc.dsltypes import Ty
-    for prim in REGISTRY.values():
-        assert prim.in_type == Ty.GRID and prim.out_type == Ty.GRID
-    parse_pipeline("rot90(); flip_h(); crop_bbox(); scale(2,2)")  # no raise
+def test_types_thread_correctly():
+    # M1 whole-grid prims are Grid->Grid; the bridge crosses to/from Selection.
+    assert REGISTRY["rot180"].in_type == Ty.GRID == REGISTRY["rot180"].out_type
+    assert REGISTRY["objects"].in_type == Ty.GRID
+    assert REGISTRY["objects"].out_type == Ty.SELECTION
+    assert REGISTRY["render"].out_type == Ty.GRID
+    parse_pipeline("rot90(); flip_h(); crop_bbox(); scale(2,2)")          # all Grid
+    parse_pipeline("objects(); select_largest(); recolor_all(3); render()")  # crosses
+    # ill-typed: object op on a Grid, and a pipeline not ending in Grid
+    from clarc.dslparse import DslTypeError
+    with pytest.raises(DslTypeError):
+        parse_pipeline("select_largest()")
+    with pytest.raises(DslTypeError):
+        parse_pipeline("objects(); render(); select_color(2)")
+    with pytest.raises(DslTypeError):
+        parse_pipeline("objects()")  # ends as Selection
 
 
 def test_extract_dsl_block():

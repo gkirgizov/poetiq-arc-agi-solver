@@ -28,11 +28,15 @@ class Ty(str, Enum):
 
 @dataclass
 class Obj:
-    """One connected component, carried as a full-canvas mask + summary attrs."""
+    """One connected component, carried as a full-canvas mask + summary attrs.
+
+    `recolor` is the render override: None ⇒ paint the object's original colors,
+    else paint every masked cell with this color (set by recolor primitives)."""
 
     mask: np.ndarray          # bool, shape == canvas (h, w)
     color: int                # dominant (most-frequent) non-bg color of the object
     size: int                 # number of cells (== mask.sum())
+    recolor: int | None = None
 
     @property
     def bbox(self) -> tuple[int, int, int, int]:
