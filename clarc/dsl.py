@@ -37,6 +37,7 @@ from scipy import ndimage
 from clarc.absdomain import MAX_DIM, N_COLORS, ZState
 from clarc.contracts import bg as bg_of
 from clarc.contracts import nonbg_mask
+from clarc.dsltypes import Ty
 
 
 class DslRuntimeError(RuntimeError):
@@ -127,9 +128,11 @@ class Primitive:
     family: str
     params: tuple[Param, ...]
     doc: str
-    apply: Callable[[np.ndarray, dict], np.ndarray]
+    apply: Callable
     encode: Callable[[ZState, ZState, dict], list[z3.BoolRef]]
     havoc: tuple[str, ...] = ()
+    in_type: Ty = Ty.GRID      # threaded value type consumed (typechecker)
+    out_type: Ty = Ty.GRID     # threaded value type produced
 
 
 REGISTRY: dict[str, Primitive] = {}
@@ -688,14 +691,21 @@ _reg(Primitive("split_binop_v", "split",
 # --------------------------------------------------------------------------- #
 
 def run_pipeline(p: Pipeline, grid: np.ndarray) -> np.ndarray:
-    g = np.asarray(grid, dtype=int)
+    """Thread one value through the pipeline. Intermediates may be Selections
+    (object layer); only grid-valued steps are bounds-checked. The final value
+    must be a Grid (a well-typed pipeline ends in render() or a Grid leaf)."""
+    val = np.asarray(grid, dtype=int)
     for step in p.steps:
-        g = np.asarray(REGISTRY[step.name].apply(g, step.params), dtype=int)
-        if g.ndim != 2 or g.shape[0] < 1 or g.shape[1] < 1:
-            raise DslRuntimeError(f"{step.name}: produced an invalid grid")
-        if g.shape[0] > MAX_DIM or g.shape[1] > MAX_DIM:
-            raise DslRuntimeError(f"{step.name}: grid exceeds {MAX_DIM}px")
-    return g
+        val = REGISTRY[step.name].apply(val, step.params)
+        if isinstance(val, np.ndarray):
+            val = np.asarray(val, dtype=int)
+            if val.ndim != 2 or val.shape[0] < 1 or val.shape[1] < 1:
+                raise DslRuntimeError(f"{step.name}: produced an invalid grid")
+            if val.shape[0] > MAX_DIM or val.shape[1] > MAX_DIM:
+                raise DslRuntimeError(f"{step.name}: grid exceeds {MAX_DIM}px")
+    if not isinstance(val, np.ndarray):
+        raise DslRuntimeError("pipeline did not end with a Grid (missing render()?)")
+    return val
 
 
 def apply_steps(steps: list[dict], grid: np.ndarray) -> np.ndarray:

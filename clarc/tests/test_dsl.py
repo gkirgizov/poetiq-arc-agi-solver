@@ -136,6 +136,15 @@ def test_parse_errors():
             parse_pipeline(bad)
 
 
+def test_whole_grid_prims_are_grid_to_grid():
+    # Every M1 primitive threads Grid->Grid, so any sequence typechecks.
+    from clarc.dsl import REGISTRY
+    from clarc.dsltypes import Ty
+    for prim in REGISTRY.values():
+        assert prim.in_type == Ty.GRID and prim.out_type == Ty.GRID
+    parse_pipeline("rot90(); flip_h(); crop_bbox(); scale(2,2)")  # no raise
+
+
 def test_extract_dsl_block():
     text = "thinking...\n```dsl\nrot90(); flip_h()\n```\ndone"
     assert extract_dsl_block(text) == "rot90(); flip_h()"

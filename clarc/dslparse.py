@@ -16,10 +16,15 @@ from __future__ import annotations
 import re
 
 from clarc.dsl import N_COLORS, REGISTRY, Pipeline, Step
+from clarc.dsltypes import Ty
 
 
 class DslError(ValueError):
     pass
+
+
+class DslTypeError(DslError):
+    """Ill-typed composition (a step's input type ≠ the threaded value type)."""
 
 
 _STEP_RE = re.compile(r"^\s*([a-z_][a-z0-9_]*)\s*\(\s*(.*?)\s*\)\s*$", re.S)
@@ -44,7 +49,26 @@ def parse_pipeline(src: str) -> Pipeline:
             steps.append(_parse_step(chunk))
     if not steps:
         raise DslError("empty pipeline")
+    _typecheck(steps)
     return Pipeline(tuple(steps))
+
+
+def _typecheck(steps: list[Step]) -> None:
+    """Thread the value type from GRID; reject ill-typed compositions and a
+    pipeline that doesn't end on a Grid (the sketch's T1 ◁ T_I, syntactic half)."""
+    cur = Ty.GRID
+    for step in steps:
+        prim = REGISTRY[step.name]
+        if prim.in_type != cur:
+            raise DslTypeError(
+                f"{step.name} expects {prim.in_type.value} but the pipeline holds "
+                f"{cur.value} here"
+                + (f" — call render() to get back a Grid" if cur == Ty.SELECTION
+                   and prim.in_type == Ty.GRID else ""))
+        cur = prim.out_type
+    if cur != Ty.GRID:
+        raise DslTypeError(f"pipeline ends as {cur.value}, must end as Grid "
+                           f"(add render())")
 
 
 def _parse_step(chunk: str) -> Step:

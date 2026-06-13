@@ -24,13 +24,16 @@ from dataclasses import dataclass
 
 import numpy as np
 import z3
+from scipy import ndimage
 
+from clarc.contracts import bg as bg_of
 from clarc.contracts import content_bbox_shape, n_objects, symmetries
 
 N_COLORS = 10
 MAX_DIM = 30
+K_OBJ = 6   # number of largest objects tracked in the per-object summary
 SYM_NAMES = ("mirror_h", "mirror_v", "rot180", "transpose", "anti_transpose")
-FACT_GROUPS = ("dims", "hist", "objects", "bbox", "sym")
+FACT_GROUPS = ("dims", "hist", "objects", "bbox", "sym", "osz", "ocol")
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,27 @@ class Sigma:
     bbox_h: int                 # (0, 0) for an all-background grid
     bbox_w: int
     sym: tuple[bool, ...]       # len 5, order = SYM_NAMES
+    osz: tuple[int, ...]        # K_OBJ largest object sizes, sorted desc, 0-padded
+    ocol: tuple[int, ...]       # objects-by-dominant-color count, len 10
+
+
+def _object_summary(g: np.ndarray) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """(osz, ocol): sizes of the K_OBJ largest 4-connected non-bg components
+    (sorted desc, zero-padded) and a count of components by dominant color."""
+    bgc = bg_of(g)
+    mask = g != bgc
+    lab, n = ndimage.label(mask, structure=ndimage.generate_binary_structure(2, 1))
+    sizes: list[int] = []
+    ocol = [0] * N_COLORS
+    for k in range(1, n + 1):
+        cells = lab == k
+        sizes.append(int(cells.sum()))
+        vals, counts = np.unique(g[cells], return_counts=True)
+        dom = int(vals[np.flatnonzero(counts == counts.max()).min()])
+        ocol[dom] += 1
+    sizes.sort(reverse=True)
+    osz = tuple((sizes + [0] * K_OBJ)[:K_OBJ])
+    return osz, tuple(ocol)
 
 
 def sigma_of(g: np.ndarray) -> Sigma:
@@ -55,8 +79,10 @@ def sigma_of(g: np.ndarray) -> Sigma:
     anti = bool(g.shape[0] == g.shape[1] and np.array_equal(g, g[::-1, ::-1].T))
     sym = tuple([*("mirror_h" in syms, "mirror_v" in syms, "rot180" in syms,
                    "transpose" in syms), anti])
+    osz, ocol = _object_summary(g)
     return Sigma(h=h, w=w, cnt=cnt, n_obj=n_objects(g),
-                 bbox_h=int(bbox[0]), bbox_w=int(bbox[1]), sym=sym)
+                 bbox_h=int(bbox[0]), bbox_w=int(bbox[1]), sym=sym,
+                 osz=osz, ocol=ocol)
 
 
 class ZState:
@@ -72,6 +98,8 @@ class ZState:
         self.bbox_h = z3.Int(f"{prefix}_bbh")
         self.bbox_w = z3.Int(f"{prefix}_bbw")
         self.sym = [z3.Bool(f"{prefix}_sym_{n}") for n in SYM_NAMES]
+        self.osz = [z3.Int(f"{prefix}_osz{j}") for j in range(K_OBJ)]
+        self.ocol = [z3.Int(f"{prefix}_ocol{c}") for c in range(N_COLORS)]
         # Derived (constrained in wf(), not free):
         self.bg = z3.Int(f"{prefix}_bg")
         self.nonbg = z3.Int(f"{prefix}_nonbg")
@@ -123,6 +151,16 @@ class ZState:
             z3.Implies(z3.And(mv, tr), z3.And(mh, r180, at)),
             z3.Implies(z3.And(mv, at), z3.And(mh, r180, tr)),
         ]
+        # Per-object summary: sorted-descending, sizes positive iff enough objects,
+        # bounded by total non-bg; one dominant color per object (all non-bg).
+        cs += [o >= 0 for o in self.osz]
+        cs += [self.osz[j] >= self.osz[j + 1] for j in range(K_OBJ - 1)]
+        cs.append(z3.Sum(self.osz) <= self.nonbg)
+        cs += [(self.osz[j] > 0) == (self.n_obj > j) for j in range(K_OBJ)]
+        cs += [o >= 0 for o in self.ocol]
+        cs.append(z3.Sum(self.ocol) == self.n_obj)
+        for b in range(N_COLORS):
+            cs.append(z3.Implies(self.bg == b, self.ocol[b] == 0))
         return cs
 
     # --- fact groups: named equality bundles for labeled assumptions ---------
@@ -133,4 +171,6 @@ class ZState:
             "objects": self.n_obj == s.n_obj,
             "bbox": z3.And(self.bbox_h == s.bbox_h, self.bbox_w == s.bbox_w),
             "sym": z3.And(*[self.sym[i] == bool(s.sym[i]) for i in range(5)]),
+            "osz": z3.And(*[self.osz[j] == s.osz[j] for j in range(K_OBJ)]),
+            "ocol": z3.And(*[self.ocol[c] == s.ocol[c] for c in range(N_COLORS)]),
         }
