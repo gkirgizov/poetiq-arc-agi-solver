@@ -215,6 +215,36 @@ operate. Next: gated haiku runs (smoke → mini → full, pinned
 claude-haiku-4-5-20251001); pre-registered STRONGER/LEARNS criteria in the
 plan file.
 
+## 3f. Phase 5b — M5 object catalogue: built, sound, coverage-flat (2026-06-14)
+
+Plan: `~/.claude/plans/from-all-the-existing-fluttering-iverson.md`. Built
+(commits b8a1a32, 046e506, …; 89 tests green): `dsltypes.py` (Grid/Selection
+threaded types + Obj/Selection carriers); typechecker in `dslparse` (rejects
+ill-typed pipelines — the sketch's T1◁T_I); per-object σ extension `osz`/`ocol`
+(6 largest sizes + objects-by-color, all-linear WF); `dslobj.py` 11 object
+combinators (`objects → select/recolor → render`) registered into the same
+REGISTRY (σ tracks the rendered grid, so the SMT layer needed ZERO change).
+
+Fuzz debugging surfaced **4 real soundness bugs, one root cause**: recoloring /
+duplicate-line removal can flip which color is the most-frequent "background",
+making n_obj/nonbg/osz unpredictable → those are correctly havoc'd now; and
+removing objects GROWS bg count, so the subset bound excludes bg. This is a
+genuine finding about σ's fragility under color changes.
+
+**KEY RESULT (decisive):** coverage probe over the 40-task devset
+(`output/probe-dsl-m5-devset.log`): **2/40 (0/20 structural, 2/20 logic) —
+UNCHANGED from before M5.** Refutation power 96.4% (17,123/17,759), **0 false
+refutations in 17,761 checks** (soundness held across the whole object layer).
+The 11 hand-designed object prims unlocked ZERO new tasks: the structural
+stratum needs PER-OBJECT RULES (recolor each object by size-rank / shape /
+position — verified: 18/20 structural tasks are per-object/positional
+recolorings, not global maps), which are effectively task-specific. **A fixed
+hand-designed catalogue undershoots ARC's structural diversity** — exactly the
+"we can't pre-design contracts" point that motivates M6 (agent-inferred
+primitives gated by the SMT sufficiency oracle). M5 thus delivers the sound
+composable *framework* + object basis; M6 is where coverage actually grows.
+Reframes M5's "≥8/20 by hand-design" bar as the wrong target.
+
 ## 3d. Predicate-loop history capture (commit dba9641)
 
 Per user request, every FUTURE experiment cell now dumps its complete
