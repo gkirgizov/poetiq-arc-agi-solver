@@ -39,26 +39,27 @@ def extract_dsl_block(text: str) -> str | None:
     return None
 
 
-def parse_pipeline(src: str) -> Pipeline:
+def parse_pipeline(src: str, registry: dict | None = None) -> Pipeline:
+    reg = registry if registry is not None else REGISTRY
     src = src.strip().rstrip(";")
     if not src:
         raise DslError("empty pipeline")
     steps = []
     for chunk in src.split(";"):
         if chunk.strip():
-            steps.append(_parse_step(chunk))
+            steps.append(_parse_step(chunk, reg))
     if not steps:
         raise DslError("empty pipeline")
-    _typecheck(steps)
+    _typecheck(steps, reg)
     return Pipeline(tuple(steps))
 
 
-def _typecheck(steps: list[Step]) -> None:
+def _typecheck(steps: list[Step], registry: dict) -> None:
     """Thread the value type from GRID; reject ill-typed compositions and a
     pipeline that doesn't end on a Grid (the sketch's T1 ◁ T_I, syntactic half)."""
     cur = Ty.GRID
     for step in steps:
-        prim = REGISTRY[step.name]
+        prim = registry[step.name]
         if prim.in_type != cur:
             raise DslTypeError(
                 f"{step.name} expects {prim.in_type.value} but the pipeline holds "
@@ -71,12 +72,12 @@ def _typecheck(steps: list[Step]) -> None:
                            f"(add render())")
 
 
-def _parse_step(chunk: str) -> Step:
+def _parse_step(chunk: str, registry: dict) -> Step:
     m = _STEP_RE.match(chunk)
     if not m:
         raise DslError(f"cannot parse step {chunk.strip()!r}: expected name(args)")
     name, argstr = m.group(1), m.group(2)
-    prim = REGISTRY.get(name)
+    prim = registry.get(name)
     if prim is None:
         raise DslError(f"unknown primitive {name!r}")
     args = [a.strip() for a in argstr.split(",") if a.strip()] if argstr.strip() else []

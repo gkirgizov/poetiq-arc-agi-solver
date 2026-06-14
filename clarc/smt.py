@@ -40,11 +40,19 @@ class CheckResult:
 
 @dataclass
 class TaskSMT:
-    """Per-task solver context: the concrete σ facts of all train pairs."""
+    """Per-task solver context: the concrete σ facts of all train pairs.
+
+    `registry` defaults to the global primitive registry; pass a task-local one
+    (global + induced prims) so induction stays task-scoped and concurrency-safe."""
 
     facts: list[tuple[Sigma, Sigma]]
     timeout_ms: int = 2000
+    registry: dict = None  # type: ignore[assignment]
     last_ms: float = field(default=0.0, init=False)
+
+    def __post_init__(self):
+        if self.registry is None:
+            self.registry = REGISTRY
 
     # ------------------------------------------------------------------ CHECK
     def check_pipeline(
@@ -67,7 +75,7 @@ class TaskSMT:
         assumptions: list[z3.BoolRef] = []
         slot_lits = []
         for k, step in enumerate(pipeline.steps):
-            prim = REGISTRY[step.name]
+            prim = self.registry[step.name]
             P = alloc_params(prim, f"k{k}")
             s.add(*param_domain(prim, P))
             zparams.append(P)
@@ -85,7 +93,7 @@ class TaskSMT:
             for st in states:
                 s.add(*st.wf())
             for k, step in enumerate(pipeline.steps):
-                prim = REGISTRY[step.name]
+                prim = self.registry[step.name]
                 rel = z3.And(*prim.encode(states[k], states[k + 1], zparams[k]))
                 s.add(z3.Implies(slot_lits[k], rel))
             for end, st, sig in (("in", states[0], sin), ("out", states[K], sout)):
@@ -113,16 +121,16 @@ class TaskSMT:
     ) -> tuple[z3.Solver, list[dict[str, z3.BoolRef]], list[dict]]:
         s = z3.Solver()
         s.set("timeout", max(self.timeout_ms, 4000))
-        names = sorted(REGISTRY)
+        names = sorted(self.registry)
         use: list[dict[str, z3.BoolRef]] = []
         zparams: list[dict] = []
         for k in range(depth):
             u = {n: z3.Bool(f"use_{k}_{n}") for n in names}
             use.append(u)
             s.add(z3.PbEq([(u[n], 1) for n in names], 1))  # exactly one per slot
-            ps = {n: alloc_params(REGISTRY[n], f"sk{k}_{n}") for n in names}
+            ps = {n: alloc_params(self.registry[n], f"sk{k}_{n}") for n in names}
             for n in names:
-                s.add(*param_domain(REGISTRY[n], ps[n]))
+                s.add(*param_domain(self.registry[n], ps[n]))
             zparams.append(ps)
         # identity-suffix symmetry breaking: once identity, always identity.
         for k in range(depth - 1):
@@ -143,7 +151,7 @@ class TaskSMT:
                 s.add(*st.wf())
             for k in range(depth):
                 for n in names:
-                    rel = z3.And(*REGISTRY[n].encode(states[k], states[k + 1],
+                    rel = z3.And(*self.registry[n].encode(states[k], states[k + 1],
                                                      zparams[k][n]))
                     s.add(z3.Implies(use[k][n], rel))
             for st, sig in ((states[0], sin), (states[depth], sout)):
@@ -166,7 +174,7 @@ class TaskSMT:
         skeleton after extraction."""
         out: list[Pipeline] = []
         seen: set[tuple[str, ...]] = set()
-        names = sorted(REGISTRY)
+        names = sorted(self.registry)
         for d in range(1, depth + 1):
             if len(out) >= max_models:
                 break
@@ -180,7 +188,7 @@ class TaskSMT:
                     blockers.append(use[k][n])
                     if n == "identity":
                         continue
-                    prim = REGISTRY[n]
+                    prim = self.registry[n]
                     params = {}
                     for p in prim.params:
                         v = m[zparams[k][n][p.name]]

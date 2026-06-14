@@ -27,6 +27,7 @@ monotone (sym_in => sym_out).
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -133,6 +134,7 @@ class Primitive:
     havoc: tuple[str, ...] = ()
     in_type: Ty = Ty.GRID      # threaded value type consumed (typechecker)
     out_type: Ty = Ty.GRID     # threaded value type produced
+    code: Optional[str] = None  # induced prims carry their transform() source (for compile)
 
 
 REGISTRY: dict[str, Primitive] = {}
@@ -714,13 +716,15 @@ _reg(Primitive("split_binop_v", "split",
 # Pipeline execution / compilation
 # --------------------------------------------------------------------------- #
 
-def run_pipeline(p: Pipeline, grid: np.ndarray) -> np.ndarray:
+def run_pipeline(p: Pipeline, grid: np.ndarray, registry: Optional[dict] = None) -> np.ndarray:
     """Thread one value through the pipeline. Intermediates may be Selections
     (object layer); only grid-valued steps are bounds-checked. The final value
-    must be a Grid (a well-typed pipeline ends in render() or a Grid leaf)."""
+    must be a Grid (a well-typed pipeline ends in render() or a Grid leaf).
+    `registry` defaults to the global one; pass a task-local one for induced prims."""
+    reg = registry if registry is not None else REGISTRY
     val = np.asarray(grid, dtype=int)
     for step in p.steps:
-        val = REGISTRY[step.name].apply(val, step.params)
+        val = reg[step.name].apply(val, step.params)
         if isinstance(val, np.ndarray):
             val = np.asarray(val, dtype=int)
             if val.ndim != 2 or val.shape[0] < 1 or val.shape[1] < 1:
@@ -738,17 +742,26 @@ def apply_steps(steps: list[dict], grid: np.ndarray) -> np.ndarray:
     return run_pipeline(p, grid)
 
 
-def compile_pipeline(p: Pipeline) -> str:
-    """Emit a `transform` that replays the pipeline via clarc.dsl (the project is
-    installed in the venv, so the sandbox subprocess can import it)."""
-    steps = json.dumps([{"name": s.name, "params": s.params} for s in p.steps])
-    return (
-        "import json as _json\n"
-        "from clarc.dsl import apply_steps as _apply_steps\n"
-        f"_STEPS = _json.loads({steps!r})\n"
-        "def transform(grid):\n"
-        "    return _apply_steps(_STEPS, grid)\n"
-    )
+def compile_pipeline(p: Pipeline, registry: Optional[dict] = None) -> str:
+    """Emit a self-contained `transform` for the sandbox. Built-in steps replay
+    via clarc.dsl (installed in the venv); INDUCED steps (which the subprocess'
+    global registry lacks) are INLINED from their carried source, so a pipeline
+    mixing both runs hermetically."""
+    reg = registry if registry is not None else REGISTRY
+    header = ["import json as _json", "import numpy as np", "import scipy",
+              "from clarc.dsl import apply_steps as _apply_steps"]
+    defs, body = [], ["def transform(grid):", "    g = np.asarray(grid, dtype=int)"]
+    for k, s in enumerate(p.steps):
+        prim = reg[s.name]
+        if prim.code:                                   # induced: inline its source
+            renamed = re.sub(r"\bdef\s+transform\s*\(", f"def _ind{k}(", prim.code)
+            defs.append(renamed)
+            body.append(f"    g = np.asarray(_ind{k}(g), dtype=int)")
+        else:                                           # built-in: replay one step
+            step_json = json.dumps([{"name": s.name, "params": s.params}])
+            body.append(f"    g = _apply_steps(_json.loads({step_json!r}), g)")
+    body.append("    return g")
+    return "\n".join(header + defs + body) + "\n"
 
 
 # --------------------------------------------------------------------------- #

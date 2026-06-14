@@ -208,7 +208,7 @@ class InducedPrimitive:
     def to_primitive(self) -> Primitive:
         return Primitive(self.name, "induced", (), self.descr,
                          _make_apply(self.code), make_encode(self.contract),
-                         in_type=Ty.GRID, out_type=Ty.GRID)
+                         in_type=Ty.GRID, out_type=Ty.GRID, code=self.code)
 
 
 def _make_apply(code: str):
