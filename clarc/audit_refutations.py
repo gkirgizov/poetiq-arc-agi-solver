@@ -16,9 +16,26 @@ import os
 
 import numpy as np
 
-from clarc.dsl import DslRuntimeError, run_pipeline
+from clarc.dsl import REGISTRY, DslRuntimeError, Primitive, run_pipeline
 from clarc.dslparse import DslError, parse_pipeline
+from clarc.dsltypes import Ty
+from clarc.learn_prim import _make_apply
 from clarc.run import _load
+
+
+def _task_registry(log: dict) -> dict:
+    """Rebuild the task-local registry (global + induced prims) from a sidecar,
+    so refutations of pipelines that USE induced prims can be replayed. Only the
+    apply (from stored code) is needed to check concrete fit."""
+    reg = dict(REGISTRY)
+    for ip in log.get("induced_prims", []):
+        try:
+            reg[ip["name"]] = Primitive(ip["name"], "induced", (), ip.get("descr", ""),
+                                        _make_apply(ip["code"]), lambda a, b, P: [],
+                                        in_type=Ty.GRID, out_type=Ty.GRID, code=ip["code"])
+        except (SyntaxError, KeyError):
+            pass
+    return reg
 
 
 def main() -> None:
@@ -30,7 +47,10 @@ def main() -> None:
     challenges, _ = _load(args.data)
     n_refuted = n_replayed = 0
     false_refutations: list[tuple[str, str]] = []
-    for path in sorted(glob.glob(os.path.join(args.out, "logs", "*_D*.json"))):
+    # all DSL-arm sidecars (D0/D1/D2/E0/…) — refutations come from any of them
+    paths = sorted(set(glob.glob(os.path.join(args.out, "logs", "*_D*.json")))
+                   | set(glob.glob(os.path.join(args.out, "logs", "*_E*.json"))))
+    for path in paths:
         with open(path, encoding="utf-8") as f:
             log = json.load(f)
         tid = log.get("task_id")
@@ -39,18 +59,19 @@ def main() -> None:
             continue
         pairs = [(np.asarray(e["input"], dtype=int), np.asarray(e["output"], dtype=int))
                  for e in task["train"]]
+        reg = _task_registry(log)
         for rec in log.get("records", []):
             if not rec.get("refuted"):
                 continue
             n_refuted += 1
             text = rec.get("dsl_text") or ""
             try:
-                p = parse_pipeline(text)
+                p = parse_pipeline(text, reg)
             except DslError:
                 continue
             n_replayed += 1
             try:
-                fits = all(np.array_equal(run_pipeline(p, gi), go) for gi, go in pairs)
+                fits = all(np.array_equal(run_pipeline(p, gi, reg), go) for gi, go in pairs)
             except (DslRuntimeError, ValueError, IndexError):
                 fits = False
             if fits:

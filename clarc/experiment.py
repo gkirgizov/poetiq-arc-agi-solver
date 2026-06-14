@@ -254,15 +254,17 @@ async def main_async(args):
     await asyncio.gather(*[asyncio.create_task(_b(t, a)) for t, a in cells])
     sink.close()
 
-    # Snapshot the cross-task contract library next to the results: the final
-    # accumulated invariants (with use/solve stats) of this experiment.
+    # Snapshot the cross-task libraries next to the results: the final accumulated
+    # invariants / induced primitives (with use/solve stats) of this experiment.
     from clarc.library import _DEFAULT_PATH as _LIB_PATH
-    if os.path.exists(_LIB_PATH):
-        with open(_LIB_PATH, encoding="utf-8") as f:
-            lib = f.read()
-        with open(os.path.join(args.out, "contract_library.final.json"), "w",
-                  encoding="utf-8") as f:
-            f.write(lib)
+    from clarc.prim_library import _DEFAULT_PATH as _PRIM_PATH
+    for src, dst in ((_LIB_PATH, "contract_library.final.json"),
+                     (_PRIM_PATH, "prim_library.final.json")):
+        if os.path.exists(src):
+            with open(src, encoding="utf-8") as f:
+                data = f.read()
+            with open(os.path.join(args.out, dst), "w", encoding="utf-8") as f:
+                f.write(data)
 
     _report(runs_path, arms)
 
