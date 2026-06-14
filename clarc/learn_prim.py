@@ -25,7 +25,6 @@ import numpy as np
 import z3
 
 from clarc.absdomain import Sigma, ZState, sigma_of
-from clarc.codeparse import parse_transform_code
 from clarc.dsl import Primitive
 from clarc.dsltypes import Ty
 from clarc.predicate_sandbox import run_transform_batch
@@ -205,11 +204,12 @@ async def _samples(code: str, grids: list[np.ndarray], timeout_s: float):
 class InducedPrimitive:
     name: str
     descr: str
-    code: str               # the LLM's transform(grid) source
+    code: str               # FULL scaffolded transform source (typed detect→rule→render)
     contract: TemplateContract
+    kind: str = "recolor"   # which typed slot: recolor | select | (future: map)
 
     def to_primitive(self) -> Primitive:
-        return Primitive(self.name, "induced", (), self.descr,
+        return Primitive(self.name, f"induced-{self.kind}", (), self.descr,
                          _make_apply(self.code), make_encode(self.contract),
                          in_type=Ty.GRID, out_type=Ty.GRID, code=self.code)
 
@@ -244,13 +244,15 @@ async def induce_primitive(
     if report is None:
         report = {}
     g: GenOutput = await generator.generate(build_induce_prompt(train_pairs), seed=seed)
-    code = parse_transform_code(g.raw or "")
-    report.update(stage="no-code", cost_usd=g.cost_usd, descr=None)
-    if not code or "def transform" not in code:
+    report.update(stage="no-rule", cost_usd=g.cost_usd, descr=None)
+    kind, rule_code, descr = parse_rule(g.raw or "")
+    if kind is None:
         return None
-    descr = _first_doc(g.raw or "") or name
-    return await gate_code(code, name, descr, train_pairs, seed=seed,
-                           n_derive=n_derive, n_verify=n_verify,
+    # Wrap the narrow per-object rule in the typed detect→rule→render scaffold.
+    code = scaffold_source(kind, rule_code)
+    report["kind"] = kind
+    return await gate_code(code, name, descr or name, train_pairs, seed=seed,
+                           n_derive=n_derive, n_verify=n_verify, kind=kind,
                            min_samples=min_samples, timeout_s=timeout_s, report=report)
 
 
@@ -258,10 +260,10 @@ async def gate_code(
     code: str, name: str, descr: str,
     train_pairs: list[tuple[np.ndarray, np.ndarray]], *,
     seed: int, n_derive: int = 24, n_verify: int = 24, min_samples: int = 8,
-    timeout_s: float = 10.0, report: Optional[dict] = None,
+    timeout_s: float = 10.0, kind: str = "recolor", report: Optional[dict] = None,
 ) -> Optional[InducedPrimitive]:
-    """Derive + GATE a transform's contract (shared by fresh induction and
-    library reuse). The LLM never enters here — only its proposed `code`."""
+    """Derive + GATE a scaffolded primitive's contract (shared by fresh induction
+    and library reuse). The LLM never enters here — only the scaffolded `code`."""
     if report is None:
         report = {}
     # Derivation batch = rich random grids + the actual train inputs.
@@ -284,41 +286,157 @@ async def gate_code(
     if not verify_contract(contract, fresh):       # belt-and-suspenders (z3)
         return None
     report.update(stage="admitted", descr=descr, contract=contract.render())
-    return InducedPrimitive(name=name, descr=descr, code=code, contract=contract)
+    return InducedPrimitive(name=name, descr=descr, code=code, contract=contract, kind=kind)
 
 
-def _first_doc(text: str) -> Optional[str]:
+# --------------------------------------------------------------------------- #
+# Typed object-decomposition scaffolding (M6, the FAITHFUL induction).
+#
+# The system owns object DETECTION and RENDER (the typed Grid<->Selection
+# bridge); the LLM induces only a NARROW per-object rule over the generating
+# basis (each object's local attributes). This enforces the decomposition
+# hypothesis — the induced piece is a typed, composable building block, NOT a
+# free-form whole-grid transform (which would just be code-gen). The auto-derived
+# contract is then the contract of a per-object operation: a clean domain
+# constraint, reusable and refutation-bearing.
+# --------------------------------------------------------------------------- #
+
+_OBJVIEW_SRC = '''
+import numpy as np
+from scipy import ndimage as _ndi
+
+def _bg(g):
+    v, c = np.unique(g, return_counts=True)
+    return int(v[np.flatnonzero(c == c.max()).min()])
+
+def _detect(g):
+    """Detect 4-connected non-background objects; expose each one's LOCAL
+    attributes (the generating basis) the induced rule reasons over."""
+    bg = _bg(g)
+    lab, n = _ndi.label(g != bg, structure=_ndi.generate_binary_structure(2, 1))
+    H, W = g.shape
+    scene = []
+    for k in range(1, n + 1):
+        m = lab == k
+        rows = np.flatnonzero(m.any(1)); cols = np.flatnonzero(m.any(0))
+        t, l, b, r = int(rows[0]), int(cols[0]), int(rows[-1]), int(cols[-1])
+        size = int(m.sum()); bh, bw = b - t + 1, r - l + 1
+        vals, cnts = np.unique(g[m], return_counts=True)
+        dom = int(vals[np.flatnonzero(cnts == cnts.max()).min()])
+        holed = int(_ndi.binary_fill_holes(m).sum()) > size
+        shape = ('dot' if size == 1 else 'hline' if bh == 1 else 'vline' if bw == 1
+                 else 'rect' if size == bh * bw else 'other')
+        scene.append({'color': dom, 'size': size, 'h': bh, 'w': bw, 'top': t,
+                      'left': l, 'n_holes': int(holed),
+                      'is_border': bool(t == 0 or l == 0 or b == H - 1 or r == W - 1),
+                      'shape': shape, 'mask': m, 'cells': g[t:b+1, l:r+1].copy()})
+    return scene, bg
+'''
+
+_SCAFFOLD = {
+    "recolor": '''
+def transform(grid):
+    g = np.asarray(grid, dtype=int)
+    scene, bg = _detect(g)
+    out = np.full(g.shape, bg, dtype=int)
+    for o in scene:
+        c = color_of(o, scene)
+        out[o['mask']] = bg if c is None else int(c)
+    return out
+''',
+    "select": '''
+def transform(grid):
+    g = np.asarray(grid, dtype=int)
+    scene, bg = _detect(g)
+    out = np.full(g.shape, bg, dtype=int)
+    for o in scene:
+        if keep(o, scene):
+            out[o['mask']] = g[o['mask']]
+    return out
+''',
+}
+
+_RULE_FN = {"recolor": "color_of", "select": "keep"}
+
+
+def scaffold_source(kind: str, rule_code: str) -> str:
+    """Wrap an induced per-object rule in the typed detect→rule→render scaffold,
+    producing a self-contained transform() (so it inlines into the sandbox)."""
+    return _OBJVIEW_SRC + "\n" + rule_code.strip() + "\n" + _SCAFFOLD[kind]
+
+
+def parse_rule(raw: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Extract (kind, rule_code, descr) from an induction reply. Returns
+    (None, None, None) if no valid rule of a known kind is present."""
     import re
-    m = re.search(r'DESCRIPTION\s*=\s*["\'](.+?)["\']', text)
-    return m.group(1) if m else None
+    blocks = re.findall(r"```(?:python)?\s*(.*?)```", raw or "", re.S | re.I)
+    body = blocks[-1] if blocks else (raw or "")
+    km = re.search(r'KIND\s*=\s*["\'](\w+)["\']', body)
+    kind = km.group(1).lower() if km else None
+    if kind not in _SCAFFOLD:
+        # infer from the function the model wrote
+        kind = next((k for k, fn in _RULE_FN.items() if f"def {fn}" in body), None)
+    if kind is None or f"def {_RULE_FN[kind]}" not in body:
+        return None, None, None
+    dm = re.search(r'DESCRIPTION\s*=\s*["\'](.+?)["\']', body)
+    return kind, body, (dm.group(1) if dm else None)
 
 
-_INDUCE_PROMPT = """You are extending an ARC solver's library with ONE new grid transformation.
+_INDUCE_PROMPT = """You are extending a TYPED, COMPOSITIONAL ARC solver. The solver already
+DETECTS the objects in a grid and exposes each object's local attributes; your job is
+NOT to write a whole-grid transform, but to supply ONE narrow rule that operates over
+those detected objects — the missing typed building block.
 
-The existing primitives cannot express this task. Study the input->output training
-pairs and write ONE Python function capturing the GENERAL transformation rule:
+Each detected object `o` is a dict with: o['color'] (dominant color), o['size'],
+o['h'], o['w'] (bbox dims), o['top'], o['left'] (bbox position), o['shape']
+('dot'|'hline'|'vline'|'rect'|'other'), o['n_holes'], o['is_border'], and
+o['cells'] (the object's bbox as a numpy array). `scene` is the list of all objects
+(use it for relational rules, e.g. ranking by size or finding a marker object).
+
+Choose EXACTLY ONE kind of rule and write it (reason ONLY over object attributes; do
+NOT re-detect objects or manipulate raw pixels):
+
+  KIND = "recolor"   →  def color_of(o, scene): return <new color int for this object>   (None = erase to background)
+  KIND = "select"    →  def keep(o, scene): return <True to keep this object, False to drop>
+
+Reply with ONE code block: a KIND line, a DESCRIPTION line, and the function. Make it
+GENERAL (it is tested on other grids and reused on other tasks) — never hard-code these
+grids' specific sizes. Example:
 
 ```python
-import numpy as np
-DESCRIPTION = "<short description of the rule>"
-def transform(grid: np.ndarray) -> np.ndarray:
-    # general, not memorized; works for any grid following the same rule
-    ...
+KIND = "recolor"
+DESCRIPTION = "recolor each object by its size rank (largest gets 2, rest 1)"
+def color_of(o, scene):
+    rank = sorted({s['size'] for s in scene}, reverse=True).index(o['size'])
+    return 2 if rank == 0 else 1
 ```
 
-Rules: pure function, numpy/scipy only, no I/O. Make it GENERAL (it will be tested
-on other grids) — do not hard-code these specific grids' sizes or colors. Return
-ONLY the code block.
-
-TRAINING PAIRS:
+TRAINING PAIRS (with the objects detected in each input):
 {pairs}
 """
+
+
+def _render_objects(g: np.ndarray) -> str:
+    """Show the detected objects + attributes for a train input, so the model
+    reasons at the object level (not pixels)."""
+    from clarc.absdomain import _object_features  # noqa: F401  (ensure import ok)
+    from clarc.dslobj import grid_to_selection
+    sel = grid_to_selection(g)
+    lines = []
+    for i, o in enumerate(sel.objs):
+        bb = o.bbox
+        lines.append(f"    obj{i}: color={o.color} size={o.size} "
+                     f"bbox=({bb[2]-bb[0]+1}x{bb[3]-bb[1]+1})@({bb[0]},{bb[1]})")
+    return "\n".join(lines) if lines else "    (no non-background objects)"
 
 
 def build_induce_prompt(train_pairs) -> str:
     from arc_agi.solve_coding import _example_to_diagram
     blocks = []
     for i, (gi, go) in enumerate(train_pairs, 1):
-        blocks.append(f"Pair {i} input:\n{_example_to_diagram(np.asarray(gi).tolist())}\n"
+        gi = np.asarray(gi)
+        blocks.append(f"Pair {i} input:\n{_example_to_diagram(gi.tolist())}\n"
+                      f"Pair {i} input objects:\n{_render_objects(gi)}\n"
                       f"Pair {i} output:\n{_example_to_diagram(np.asarray(go).tolist())}")
-    return _INDUCE_PROMPT.format(pairs="\n\n".join(blocks))
+    # .replace (not .format): the prompt's example contains literal { } braces.
+    return _INDUCE_PROMPT.replace("{pairs}", "\n\n".join(blocks))

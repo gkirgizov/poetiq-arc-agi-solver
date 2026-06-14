@@ -96,21 +96,26 @@ def test_make_encode_refutes_via_derived_contract():
 
 
 @pytest.mark.asyncio
-async def test_induce_end_to_end_with_stub():
-    """A stub 'LLM' proposes a doubling transform; induction derives a sound
-    contract and the result refutes a non-doubling candidate."""
-    code = ('import numpy as np\nDESCRIPTION = "double via kron"\n'
-            'def transform(grid):\n    return np.kron(grid, np.ones((2,2), dtype=int))\n')
-    gen = StubGenerator([f"```python\n{code}\n```"])
-    g = np.array([[1, 0], [0, 2]])
-    pairs = [(g, np.kron(g, np.ones((2, 2), dtype=int)))]
+async def test_induce_decomposed_recolor_rule_with_stub():
+    """A stub 'LLM' proposes a NARROW per-object recolor rule (not a free-form
+    transform); the system scaffolds detect→rule→render, auto-derives a sound
+    per-object-recolor contract, and the result reproduces the train outputs."""
+    proposal = ('```python\nKIND = "recolor"\n'
+                'DESCRIPTION = "largest object -> 3, others -> 1"\n'
+                'def color_of(o, scene):\n'
+                '    mx = max(s["size"] for s in scene)\n'
+                '    return 3 if o["size"] == mx else 1\n```')
+    gen = StubGenerator([proposal])
+    g1 = np.array([[1, 1, 0, 2], [1, 1, 0, 0], [0, 0, 0, 3]])
+    o1 = np.array([[3, 3, 0, 1], [3, 3, 0, 0], [0, 0, 0, 1]])
     report: dict = {}
-    ind = await induce_primitive(gen, pairs, name="induced_0", seed=1, report=report)
+    ind = await induce_primitive(gen, [(g1, o1)], name="ind_rank_0", seed=1, report=report)
     assert ind is not None, report
-    assert report["stage"] == "admitted"
-    assert ind.contract.int_tmpl["h"] == ("mul", 2)
-    # the induced primitive's contract is sound and usable in a Primitive
+    assert report["stage"] == "admitted" and ind.kind == "recolor"
+    # the model wrote only the rule; the system owns detection + render
+    assert "def color_of" in ind.code and "_detect" in ind.code
+    # contract reflects a per-object recolor: dims preserved
+    assert ind.contract.int_tmpl["h"] == ("eq",) and ind.contract.int_tmpl["w"] == ("eq",)
     prim = ind.to_primitive()
-    assert prim.encode(ZState("a"), ZState("b"), {})        # builds constraints
-    # and its apply actually doubles
-    assert prim.apply(np.array([[5]]), {}).shape == (2, 2)
+    assert prim.encode(ZState("a"), ZState("b"), {})
+    assert np.array_equal(prim.apply(g1, {}), o1)   # the decomposed rule solves train
