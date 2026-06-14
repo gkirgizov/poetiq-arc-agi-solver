@@ -272,6 +272,49 @@ is that M6's auto-derived contracts *can* express shape-conditional invariants �
 but expect no refutation gain. The "sharpen the tool first" hypothesis was
 reasonable, and measurement (partially) refuted it: the tool wasn't dull.
 
+## 3h. M6 — self-extending DSL (built + $0-verified, 2026-06-14)
+
+The "adaptive intelligence" milestone: the DSL grows itself. Built (commits
+70cbd5f, 0d5e09e, 3140b27; 103 tests green), all $0-testable; the paid haiku run
+is the only remaining step (gated).
+
+- **`learn_prim.py` — the safety-critical core.** The LLM proposes ONLY a concrete
+  `transform(grid)`; the abstract z3 contract is **auto-derived** by sampling
+  σ-deltas over rich random grids and picking, per σ component, the strongest
+  relation template (eq / mul-k / const / ≤ / ≥, default free) that holds. An
+  over-claimed template is DOWNGRADED to free against a fresh independent batch
+  (anti-overfit) — so the contract is sound on deriv∪fresh by construction, the
+  primitive is never rejected for a degenerate component, and **an LLM-authored
+  unsound contract is structurally impossible** (it never writes one).
+- **Gate** (all $0): code runs in `predicate_sandbox.run_transform_batch` (one
+  subprocess, N grids); contract re-verified (z3) on the fresh batch; bias to weak
+  templates (too-weak only refutes less, never wrongly).
+- **`prim_library.py`** — persistent JSON store of induced prims (twin of
+  `library.py`); on reuse the contract is RE-DERIVED from the stored code on the
+  new task (sound reuse, never trust a stored contract).
+- **Registry threading** — TaskSMT / parse / compile / run all take a task-local
+  registry (global + induced); `compile_pipeline` INLINES induced source into the
+  sandbox script. Induction is task-scoped + concurrency-safe; no global mutation.
+- **Arm E0** = D2 + `induce_prims`. Induction is **PROACTIVE, not oracle-gated**:
+  the SMT oracle's SAT verdict can't distinguish "a built-in works" from
+  "abstraction too coarse to rule built-ins out" (false-feasible — verified: the
+  symmetrize task reads SAT via `fill_holes`), so gating induction on UNSAT@depth
+  would miss exactly the tasks needing it. The oracle verdict is logged, not used
+  as the trigger. (This is an honest correction to the plan's UNSAT-trigger.)
+- **E0 e2e proof (stub, $0):** a symmetrize-across-diagonal task NO built-in
+  expresses — E0 induces the overlay-transpose primitive, auto-derives its sound
+  contract, and solves; D2 (no induction) cannot. `clarc_log` carries
+  `induced_prims` (name/descr/code/contract) + `n_induced`.
+
+**What M6 is / isn't:** the creative leap (writing the transform) is still the
+LLM's, as in any code-gen solver. The novelty is a **typed, contract-carrying,
+SMT-checkable, cross-task-reusable library that grows under a soundness gate** —
+the induced prim is executed, persisted, reused, and its auto-derived contract
+refutes future candidates. **NEXT (gated, paid):** E0 vs D2 on the devset (esp.
+the 0-coverage structural stratum) with pinned `claude-haiku-4-5` — does
+induction lift coverage, and do induced prims get reused across tasks (the
+persistence payoff)?
+
 ## 3d. Predicate-loop history capture (commit dba9641)
 
 Per user request, every FUTURE experiment cell now dumps its complete
