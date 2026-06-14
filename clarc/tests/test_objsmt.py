@@ -74,19 +74,17 @@ def test_solve_by_contracts_uniform_transform():
 
 def test_solve_by_contracts_rejects_conditional_task():
     """A per-object CONDITIONAL transform (largest->3, others->1) is NOT a uniform
-    global contract, so the uniform solver correctly declines (no false solve) —
-    this is the gap that motivates conditional contracts (M7c)."""
+    global contract. Two pairs where 'largest' and 'color' DISAGREE (color 1 is
+    largest in one, smallest in the other) defeat any global color-map, so the
+    uniform solver correctly declines (no false solve) — the gap M7c must close."""
     from clarc.objsolve import solve_by_contracts
-    def rule(g):
-        from clarc.objects import segment
-        g = np.array(g); out = g.copy()
-        objs = segment(g, "connected4"); mx = max(o.size for o in objs)
-        for o in objs:
-            out[o.mask] = 3 if o.size == mx else 1
-        return out
-    g1 = [[1, 1, 0, 2], [1, 1, 0, 0], [0, 0, 0, 3]]
-    preds, _ = solve_by_contracts([(g1, rule(g1))], [np.array(g1)])
-    assert preds is None       # uniform menu can't express a size-conditional recolor
+    g1 = [[1, 1, 0], [1, 0, 2]]            # color 1 is largest (size 3)
+    o1 = [[3, 3, 0], [3, 0, 1]]            # largest -> 3, other -> 1
+    g2 = [[2, 2, 0], [2, 0, 1]]            # color 2 is largest, color 1 is smallest
+    o2 = [[3, 3, 0], [3, 0, 1]]            # largest -> 3, other -> 1  (so 1->1 here, 1->3 there)
+    preds, _ = solve_by_contracts([(np.array(g1), np.array(o1)),
+                                   (np.array(g2), np.array(o2))], [np.array(g1)])
+    assert preds is None       # no global color-map fits both -> uniform menu declines
 
 
 def test_refute_requires_consistent_matching():
