@@ -4,5 +4,6 @@ __pycache__/
 .DS_Store
 .venv/
 output/
-# clarc runtime-accumulated state (the learned contract library grows across runs)
+# clarc runtime-accumulated state (the learned libraries grow across runs)
 clarc/contract_library.json
+clarc/prim_library.json
