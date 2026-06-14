@@ -21,7 +21,7 @@ import numpy as np
 import z3
 from scipy import ndimage
 
-from clarc.absdomain import K_OBJ, N_COLORS, ZState
+from clarc.absdomain import K_OBJ, N_COLORS, N_SHAPE, ZState
 from clarc.contracts import bg as bg_of
 from clarc.dsl import _COLORS, Param, Primitive, _case, _reg
 from clarc.dsltypes import Obj, Selection, Ty
@@ -79,6 +79,9 @@ def _subset(si: ZState, so: ZState) -> list[z3.BoolRef]:
     cs = [so.h == si.h, so.w == si.w, so.nonbg <= si.nonbg]
     cs += [z3.Implies(si.bg != c, so.cnt[c] <= si.cnt[c]) for c in range(N_COLORS)]
     cs += [so.osz[j] <= si.osz[j] for j in range(K_OBJ)]   # j-th largest kept ≤ overall
+    # a subset of objects: every shape-class count, holed and border count drop
+    cs += [so.oshape[k] <= si.oshape[k] for k in range(N_SHAPE)]
+    cs += [so.n_holed <= si.n_holed, so.n_border <= si.n_border]
     return cs
 
 

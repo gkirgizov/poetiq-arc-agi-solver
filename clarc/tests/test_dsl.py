@@ -51,14 +51,28 @@ def _random_grid(r=None) -> np.ndarray:
 
 
 def _random_multiobj_grid(r=None) -> np.ndarray:
-    """Sparse grid with several distinct small objects — stresses osz/ocol."""
+    """Sparse grid with varied shapes — stresses osz/ocol/oshape/holes/border."""
     r = r or rng
-    h, w = int(r.integers(6, 14)), int(r.integers(6, 14))
+    h, w = int(r.integers(7, 15)), int(r.integers(7, 15))
     g = np.zeros((h, w), dtype=int)
     for _ in range(int(r.integers(2, 7))):
-        i, j = int(r.integers(0, h)), int(r.integers(0, w))
+        i, j = int(r.integers(0, h - 1)), int(r.integers(0, w - 1))
         col = int(r.integers(1, 10))
-        g[i:i + int(r.integers(1, 3)), j:j + int(r.integers(1, 3))] = col
+        kind = int(r.integers(0, 6))
+        if kind == 0:                               # dot
+            g[i, j] = col
+        elif kind == 1:                             # hline
+            g[i, j:j + int(r.integers(2, 4))] = col
+        elif kind == 2:                             # vline
+            g[i:i + int(r.integers(2, 4)), j] = col
+        elif kind == 3:                             # solid rect
+            g[i:i + 2, j:j + 2] = col
+        elif kind == 4 and i + 2 < h and j + 2 < w:  # hollow square (holed)
+            g[i:i + 3, j:j + 3] = col
+            g[i + 1, j + 1] = 0
+        else:                                       # small cross (other)
+            if 0 < i < h - 1 and 0 < j < w - 1:
+                g[i, j] = g[i - 1, j] = g[i + 1, j] = g[i, j - 1] = g[i, j + 1] = col
     return g
 
 

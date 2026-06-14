@@ -34,7 +34,7 @@ import numpy as np
 import z3
 from scipy import ndimage
 
-from clarc.absdomain import MAX_DIM, N_COLORS, ZState
+from clarc.absdomain import K_OBJ, MAX_DIM, N_COLORS, N_SHAPE, ZState
 from clarc.contracts import bg as bg_of
 from clarc.contracts import nonbg_mask
 from clarc.dsltypes import Ty
@@ -160,6 +160,17 @@ def _geo(name: str, fn: Callable[[np.ndarray], np.ndarray], swap_dims: bool,
             cs += _eq_dims(si, so) + _eq_bbox(si, so)
         cs += _eq_cnt(si, so) + [so.n_obj == si.n_obj]
         cs += _sym_perm(si, so, perm)
+        # Cells are permuted, so sizes, colors, holes and border-incidence are
+        # invariant; h/w-swapping ops swap the hline/vline shape classes.
+        cs += [so.osz[j] == si.osz[j] for j in range(K_OBJ)]
+        cs += [so.ocol[c] == si.ocol[c] for c in range(N_COLORS)]
+        cs += [so.n_holed == si.n_holed, so.n_border == si.n_border]
+        if swap_dims:
+            cs += [so.oshape[0] == si.oshape[0], so.oshape[1] == si.oshape[2],
+                   so.oshape[2] == si.oshape[1], so.oshape[3] == si.oshape[3],
+                   so.oshape[4] == si.oshape[4]]
+        else:
+            cs += [so.oshape[k] == si.oshape[k] for k in range(N_SHAPE)]
         return cs
 
     _reg(Primitive(name, "geometry", (), doc, apply, encode))
@@ -200,9 +211,15 @@ def _enc_crop_bbox(si, so, P):
     for c in range(N_COLORS):
         cs.append(so.cnt[c] <= si.cnt[c])
         cs.append(z3.Implies(si.bg != c, so.cnt[c] == si.cnt[c]))
+    # all non-bg content is retained, only repositioned → objects (sizes, colors,
+    # shapes, holes, count) are unchanged; only border-incidence shifts (havoc).
     cs.append(z3.Implies(so.bg == si.bg,
                          z3.And(so.bbox_h == so.h, so.bbox_w == so.w,
-                                so.n_obj == si.n_obj)))
+                                so.n_obj == si.n_obj,
+                                *[so.osz[j] == si.osz[j] for j in range(K_OBJ)],
+                                *[so.ocol[c] == si.ocol[c] for c in range(N_COLORS)],
+                                *[so.oshape[k] == si.oshape[k] for k in range(N_SHAPE)],
+                                so.n_holed == si.n_holed)))
     return cs
 
 
@@ -248,6 +265,11 @@ def _enc_scale(si, so, P):
               so.n_obj == si.n_obj,
               so.bbox_h == a * si.bbox_h, so.bbox_w == b * si.bbox_w]
         cs += [so.cnt[c] == a * b * si.cnt[c] for c in range(N_COLORS)]
+        # each object's size scales by a*b (order preserved); colors, holes and
+        # border-incidence are invariant. oshape is HAVOC (lines become rects).
+        cs += [so.osz[j] == a * b * si.osz[j] for j in range(K_OBJ)]
+        cs += [so.ocol[c] == si.ocol[c] for c in range(N_COLORS)]
+        cs += [so.n_holed == si.n_holed, so.n_border == si.n_border]
         cs += _sym_monotone(si, so, (0, 1, 2))
         if a == b:
             cs += _sym_monotone(si, so, (3, 4))

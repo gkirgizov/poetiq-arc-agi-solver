@@ -33,7 +33,8 @@ N_COLORS = 10
 MAX_DIM = 30
 K_OBJ = 6   # number of largest objects tracked in the per-object summary
 SYM_NAMES = ("mirror_h", "mirror_v", "rot180", "transpose", "anti_transpose")
-FACT_GROUPS = ("dims", "hist", "objects", "bbox", "sym", "osz", "ocol")
+FACT_GROUPS = ("dims", "hist", "objects", "bbox", "sym", "osz", "ocol",
+               "oshape", "ohole", "oborder")
 
 
 @dataclass(frozen=True)
@@ -49,25 +50,56 @@ class Sigma:
     sym: tuple[bool, ...]       # len 5, order = SYM_NAMES
     osz: tuple[int, ...]        # K_OBJ largest object sizes, sorted desc, 0-padded
     ocol: tuple[int, ...]       # objects-by-dominant-color count, len 10
+    oshape: tuple[int, ...]     # objects by shape class, len N_SHAPE (disjoint, sums to n_obj)
+    n_holed: int                # objects with >=1 enclosed background hole
+    n_border: int               # objects touching the grid edge
 
 
-def _object_summary(g: np.ndarray) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """(osz, ocol): sizes of the K_OBJ largest 4-connected non-bg components
-    (sorted desc, zero-padded) and a count of components by dominant color."""
+# Disjoint per-object shape partition (every object lands in exactly one).
+SHAPE_NAMES = ("dot", "hline", "vline", "rect", "other")
+N_SHAPE = len(SHAPE_NAMES)
+
+
+def _shape_class(cells: np.ndarray, bh: int, bw: int, size: int) -> int:
+    """Classify one component's shape into a SHAPE_NAMES index."""
+    if size == 1:
+        return 0                                   # dot
+    if bh == 1:
+        return 1                                   # hline
+    if bw == 1:
+        return 2                                   # vline
+    if bh >= 2 and bw >= 2 and size == bh * bw:
+        return 3                                   # solid rectangle
+    return 4                                        # other (L, cross, hollow, …)
+
+
+def _object_features(g: np.ndarray):
+    """All per-object summaries in one labeling pass."""
     bgc = bg_of(g)
     mask = g != bgc
     lab, n = ndimage.label(mask, structure=ndimage.generate_binary_structure(2, 1))
+    H, W = g.shape
     sizes: list[int] = []
     ocol = [0] * N_COLORS
+    oshape = [0] * N_SHAPE
+    n_holed = n_border = 0
     for k in range(1, n + 1):
         cells = lab == k
-        sizes.append(int(cells.sum()))
+        size = int(cells.sum())
+        sizes.append(size)
         vals, counts = np.unique(g[cells], return_counts=True)
-        dom = int(vals[np.flatnonzero(counts == counts.max()).min()])
-        ocol[dom] += 1
+        ocol[int(vals[np.flatnonzero(counts == counts.max()).min()])] += 1
+        rows = np.flatnonzero(cells.any(axis=1))
+        cols = np.flatnonzero(cells.any(axis=0))
+        bh, bw = int(rows[-1] - rows[0] + 1), int(cols[-1] - cols[0] + 1)
+        oshape[_shape_class(cells, bh, bw, size)] += 1
+        if ndimage.binary_fill_holes(cells).sum() > size:
+            n_holed += 1
+        if rows[0] == 0 or cols[0] == 0 or rows[-1] == H - 1 or cols[-1] == W - 1:
+            n_border += 1
     sizes.sort(reverse=True)
     osz = tuple((sizes + [0] * K_OBJ)[:K_OBJ])
-    return osz, tuple(ocol)
+    return osz, tuple(ocol), tuple(oshape), n_holed, n_border
 
 
 def sigma_of(g: np.ndarray) -> Sigma:
@@ -79,10 +111,11 @@ def sigma_of(g: np.ndarray) -> Sigma:
     anti = bool(g.shape[0] == g.shape[1] and np.array_equal(g, g[::-1, ::-1].T))
     sym = tuple([*("mirror_h" in syms, "mirror_v" in syms, "rot180" in syms,
                    "transpose" in syms), anti])
-    osz, ocol = _object_summary(g)
+    osz, ocol, oshape, n_holed, n_border = _object_features(g)
     return Sigma(h=h, w=w, cnt=cnt, n_obj=n_objects(g),
                  bbox_h=int(bbox[0]), bbox_w=int(bbox[1]), sym=sym,
-                 osz=osz, ocol=ocol)
+                 osz=osz, ocol=ocol, oshape=oshape,
+                 n_holed=n_holed, n_border=n_border)
 
 
 class ZState:
@@ -100,6 +133,9 @@ class ZState:
         self.sym = [z3.Bool(f"{prefix}_sym_{n}") for n in SYM_NAMES]
         self.osz = [z3.Int(f"{prefix}_osz{j}") for j in range(K_OBJ)]
         self.ocol = [z3.Int(f"{prefix}_ocol{c}") for c in range(N_COLORS)]
+        self.oshape = [z3.Int(f"{prefix}_osh{k}") for k in range(N_SHAPE)]
+        self.n_holed = z3.Int(f"{prefix}_nholed")
+        self.n_border = z3.Int(f"{prefix}_nborder")
         # Derived (constrained in wf(), not free):
         self.bg = z3.Int(f"{prefix}_bg")
         self.nonbg = z3.Int(f"{prefix}_nonbg")
@@ -161,6 +197,11 @@ class ZState:
         cs.append(z3.Sum(self.ocol) == self.n_obj)
         for b in range(N_COLORS):
             cs.append(z3.Implies(self.bg == b, self.ocol[b] == 0))
+        # Shape partition (disjoint, covers every object) + independent flags.
+        cs += [o >= 0 for o in self.oshape]
+        cs.append(z3.Sum(self.oshape) == self.n_obj)
+        cs += [self.n_holed >= 0, self.n_holed <= self.n_obj,
+               self.n_border >= 0, self.n_border <= self.n_obj]
         return cs
 
     # --- fact groups: named equality bundles for labeled assumptions ---------
@@ -173,4 +214,7 @@ class ZState:
             "sym": z3.And(*[self.sym[i] == bool(s.sym[i]) for i in range(5)]),
             "osz": z3.And(*[self.osz[j] == s.osz[j] for j in range(K_OBJ)]),
             "ocol": z3.And(*[self.ocol[c] == s.ocol[c] for c in range(N_COLORS)]),
+            "oshape": z3.And(*[self.oshape[k] == s.oshape[k] for k in range(N_SHAPE)]),
+            "ohole": self.n_holed == s.n_holed,
+            "oborder": self.n_border == s.n_border,
         }

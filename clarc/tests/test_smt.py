@@ -98,3 +98,34 @@ def test_prim_impossible_anywhere_depth1():
     assert smt.prim_impossible_anywhere("tile", 1)
     # identity is also impossible (dims change), rot180 too:
     assert smt.prim_impossible_anywhere("identity", 1)
+
+
+def test_shape_class_refutation():
+    """M5d: the per-object shape signature lets σ tell hline from vline.
+    A task whose output rotates horizontal lines into vertical ones refutes
+    flip_h (which preserves the hline/vline classes) but not rot90."""
+    from clarc.dsl import run_pipeline
+    g = np.array([[1, 1, 1, 0, 0], [0, 0, 0, 0, 0], [2, 2, 0, 0, 0],
+                  [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]])
+    out = run_pipeline(parse_pipeline("rot90()"), g)
+    smt = TaskSMT(_facts((g, out)))
+    # rot90 is the true rule — must stay feasible
+    assert not smt.check_pipeline(parse_pipeline("rot90()")).refuted
+    # flip_h keeps hlines horizontal → contradicts the oshape facts → refuted
+    r = smt.check_pipeline(parse_pipeline("flip_h()"))
+    assert r.refuted
+    assert any("oshape" in c for c in r.core), r.core
+
+
+def test_select_color_count_refutation():
+    """select_color is exact in n_obj via ocol: picking the wrong color yields
+    the wrong object count and refutes pre-execution."""
+    # two color-1 objects, one color-2 object; the task keeps the color-1 ones.
+    g = np.array([[1, 1, 0, 2], [0, 0, 0, 2], [1, 0, 0, 0], [1, 0, 0, 0]])
+    out = np.array([[1, 1, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0], [1, 0, 0, 0]])
+    smt = TaskSMT(_facts((g, out)))
+    assert not smt.check_pipeline(parse_pipeline(
+        "objects(); select_color(1); render()")).refuted
+    # selecting color 2 leaves ocol[2]==1 object, but the output has 2 → refuted
+    assert smt.check_pipeline(parse_pipeline(
+        "objects(); select_color(2); render()")).refuted
