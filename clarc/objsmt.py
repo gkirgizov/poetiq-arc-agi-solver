@@ -156,6 +156,9 @@ def _induce_for_seg(pairs, timeout_ms):
                     opt.add(z3.Implies(z3.And(use[c], M[i][j]),
                                        _contract_term(c, oi[i], oo[j], P)))
     opt.maximize(z3.Sum(*[z3.If(use[c], _MENU[c][1], 0) for c in _MENU]))
+    # secondary (lower-priority) objective: leave the color map as IDENTITY where
+    # train doesn't constrain it, so colors unseen in train pass through unchanged.
+    opt.maximize(z3.Sum(*[z3.If(z3.Select(P["pi"], c) == c, 1, 0) for c in range(10)]))
     if opt.check() != z3.sat:
         return None
     m = opt.model()

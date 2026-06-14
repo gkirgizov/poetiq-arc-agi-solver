@@ -58,6 +58,37 @@ def test_induce_position_shift_contract():
     assert not check_output(seg(g1, c.segmentation), seg(bad, c.segmentation), c)
 
 
+def test_solve_by_contracts_uniform_transform():
+    """A uniform per-object transform (recolor 1<->2, shapes/positions kept) is
+    SOLVED purely logically: induce contracts, apply forward to test, no LLM."""
+    from clarc.objsolve import solve_by_contracts
+    def swap(g):
+        g = np.array(g); o = g.copy(); o[g == 1] = 2; o[g == 2] = 1; return o
+    g1 = [[1, 1, 0], [0, 0, 0], [0, 2, 2]]
+    g2 = [[0, 1, 0], [2, 0, 0], [0, 0, 2]]
+    test = [[1, 2, 0], [0, 0, 1]]
+    preds, c = solve_by_contracts([(g1, swap(g1)), (g2, swap(g2))], [np.array(test)])
+    assert preds is not None and np.array_equal(preds[0], swap(test))
+    assert c.pi[1] == 2 and c.pi[2] == 1 and c.pi[3] == 3   # free colors stay identity
+
+
+def test_solve_by_contracts_rejects_conditional_task():
+    """A per-object CONDITIONAL transform (largest->3, others->1) is NOT a uniform
+    global contract, so the uniform solver correctly declines (no false solve) —
+    this is the gap that motivates conditional contracts (M7c)."""
+    from clarc.objsolve import solve_by_contracts
+    def rule(g):
+        from clarc.objects import segment
+        g = np.array(g); out = g.copy()
+        objs = segment(g, "connected4"); mx = max(o.size for o in objs)
+        for o in objs:
+            out[o.mask] = 3 if o.size == mx else 1
+        return out
+    g1 = [[1, 1, 0, 2], [1, 1, 0, 0], [0, 0, 0, 3]]
+    preds, _ = solve_by_contracts([(g1, rule(g1))], [np.array(g1)])
+    assert preds is None       # uniform menu can't express a size-conditional recolor
+
+
 def test_refute_requires_consistent_matching():
     # recolor-all-to-5 task: shapes/positions preserved, all colors -> 5
     def to5(g):
