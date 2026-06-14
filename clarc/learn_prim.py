@@ -175,7 +175,10 @@ def _rand_grids(rng, n: int) -> list[np.ndarray]:
     populate osz3..5 / oshape), some with holes, varied sizes/colors."""
     grids = []
     for t in range(n):
-        h, w = int(rng.integers(4, 16)), int(rng.integers(4, 16))
+        h = int(rng.integers(4, 16))
+        # ~half square (so domain-restricted transforms, e.g. transpose-based,
+        # get enough in-domain samples), the rest rectangular.
+        w = h if rng.random() < 0.5 else int(rng.integers(4, 16))
         g = np.zeros((h, w), dtype=int)
         n_obj = int(rng.integers(1, 9)) if t % 2 else int(rng.integers(5, 12))
         for _ in range(n_obj):
@@ -246,7 +249,21 @@ async def induce_primitive(
     if not code or "def transform" not in code:
         return None
     descr = _first_doc(g.raw or "") or name
+    return await gate_code(code, name, descr, train_pairs, seed=seed,
+                           n_derive=n_derive, n_verify=n_verify,
+                           min_samples=min_samples, timeout_s=timeout_s, report=report)
 
+
+async def gate_code(
+    code: str, name: str, descr: str,
+    train_pairs: list[tuple[np.ndarray, np.ndarray]], *,
+    seed: int, n_derive: int = 24, n_verify: int = 24, min_samples: int = 8,
+    timeout_s: float = 10.0, report: Optional[dict] = None,
+) -> Optional[InducedPrimitive]:
+    """Derive + GATE a transform's contract (shared by fresh induction and
+    library reuse). The LLM never enters here — only its proposed `code`."""
+    if report is None:
+        report = {}
     # Derivation batch = rich random grids + the actual train inputs.
     drng = np.random.default_rng(seed)
     deriv = await _samples(code, _rand_grids(drng, n_derive) + [gi for gi, _ in train_pairs],
@@ -254,11 +271,10 @@ async def induce_primitive(
     report["stage"] = "exec-fail"
     if deriv is None or len(deriv) < min_samples:
         return None
-
-    # Fresh, independent batch (different seed). Derive strongest templates over
-    # `deriv`, then DOWNGRADE any component `fresh` contradicts (anti-overfit:
-    # an over-claimed template never survives to refute, but the primitive is
-    # still admitted with its sound, weaker contract).
+    # Fresh, independent batch (different seed). Strongest templates over `deriv`,
+    # then DOWNGRADE any component `fresh` contradicts (anti-overfit: an
+    # over-claimed template never survives to refute; the prim is still admitted
+    # with its sound, weaker contract).
     frng = np.random.default_rng(seed + 9973)
     fresh = await _samples(code, _rand_grids(frng, n_verify), timeout_s)
     report["stage"] = "verify-fail"
@@ -267,7 +283,6 @@ async def induce_primitive(
     contract = derive_contract_verified(deriv, fresh)
     if not verify_contract(contract, fresh):       # belt-and-suspenders (z3)
         return None
-
     report.update(stage="admitted", descr=descr, contract=contract.render())
     return InducedPrimitive(name=name, descr=descr, code=code, contract=contract)
 

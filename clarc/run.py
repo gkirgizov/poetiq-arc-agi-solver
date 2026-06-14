@@ -47,6 +47,8 @@ ARMS = {
     "D0": dict(dsl_required=True),                                # try-and-drop baseline (the A4 tax)
     "D1": dict(dsl_required=True, z3_refute=True),                # + pre-execution refutation
     "D2": dict(dsl_required=True, z3_refute=True, z3_learn=True),  # + clause learning (+prompt inject)
+    "E0": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # + SELF-EXTENSION: induce new
+               induce_prims=True),                               # primitives when the library is insufficient
 }
 
 

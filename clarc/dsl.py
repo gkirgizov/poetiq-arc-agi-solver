@@ -61,7 +61,10 @@ class Step:
     params: dict = field(default_factory=dict)
 
     def pretty(self) -> str:
-        prim = REGISTRY[self.name]
+        prim = REGISTRY.get(self.name)
+        if prim is None:        # induced / task-local primitive (not in the global registry)
+            args = ", ".join(str(v) for v in self.params.values())
+            return f"{self.name}({args})"
         if prim.name == "recolor":
             pairs = [f"{c}->{self.params[f'pi{c}']}" for c in range(N_COLORS)
                      if self.params.get(f"pi{c}", c) != c]

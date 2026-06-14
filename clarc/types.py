@@ -96,6 +96,11 @@ class ClarcConfig:
     dsl_depth_max: int = 4         # bound for SYNTH/position-lift queries
     z3_timeout_ms: int = 2000      # solver cap; timeout degrades to "not refuted"
     max_clauses: int = 16          # prompt block cap (solver always sees all)
+    # --- self-extending DSL (M6; arm E0) ---
+    induce_prims: bool = False     # induce new primitives when the library is insufficient
+    induce_on_unsat: bool = True   # trigger induction when the SMT oracle says UNSAT@depth
+    max_induced_prims: int = 3     # cap induced prims per task
+    prim_use_library: bool = True  # load/persist the cross-task induced-primitive library
     # --- adaptive contract learning (Phase 4) ---
     learn_contracts: bool = False     # induce new invariants from semantic conflicts
     max_learned: int = 3              # cap induced contracts per task

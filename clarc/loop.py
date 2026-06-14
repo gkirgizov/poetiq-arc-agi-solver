@@ -34,8 +34,10 @@ from arc_agi.types import ARCAGIResult, ARCAGISolution, RunResult
 from clarc.absdomain import sigma_of
 from clarc.analyze import parse_grid, render_violation_feedback
 from clarc.clauses import ClauseStore, _facts_nl
-from clarc.dsl import compile_pipeline, render_catalog
+from clarc.dsl import REGISTRY, compile_pipeline, render_catalog
 from clarc.dslparse import DslError, extract_dsl_block, parse_pipeline
+from clarc.learn_prim import gate_code, induce_primitive
+from clarc.prim_library import PrimLibrary
 from clarc.instrument import IterRecord, RunLog
 from clarc.learn import induced_violations, propose_contract, verify_on_pairs
 from clarc.library import ContractLibrary
@@ -102,18 +104,68 @@ async def solve_task(
     pairs_np = [(np.asarray(gi, dtype=int), np.asarray(go, dtype=int))
                 for gi, go in zip(train_in, train_out)]
     sem_conflicts = 0
+    total_cost = 0.0
+    total_ptok = 0
+    total_ctok = 0
 
     # --- DSL ⇄ SMT dual (D-arms) -------------------------------------------
     task_smt: Optional[TaskSMT] = None
     clause_store: Optional[ClauseStore] = None
     seen_pipelines: set[str] = set()
-    if cfg.dsl_required and (cfg.z3_refute or cfg.z3_learn):
+    # Task-local primitive registry: a copy when we may induce (keeps induction
+    # task-scoped + concurrency-safe), else the shared global.
+    dsl_registry = dict(REGISTRY) if (cfg.dsl_required and cfg.induce_prims) else REGISTRY
+    induced_prims: list = []   # InducedPrimitive admitted this task (for the log)
+    prim_lib: Optional[PrimLibrary] = None
+    if cfg.dsl_required and (cfg.z3_refute or cfg.z3_learn or cfg.induce_prims):
         facts = [(sigma_of(gi), sigma_of(go)) for gi, go in pairs_np]
-        task_smt = TaskSMT(facts, timeout_ms=cfg.z3_timeout_ms)
+        task_smt = TaskSMT(facts, timeout_ms=cfg.z3_timeout_ms, registry=dsl_registry)
         # loo_annotate off live: it's a diagnostics-only annotation and costs
         # several extra solver calls per learned clause (computable offline).
         clause_store = ClauseStore(task_smt, depth=cfg.dsl_depth_max,
                                    loo_annotate=False)
+
+    async def _admit(ind, *, from_lib: bool) -> bool:
+        """Add an admitted induced primitive to the task registry (and library)."""
+        if ind is None or ind.name in dsl_registry:
+            return False
+        dsl_registry[ind.name] = ind.to_primitive()
+        induced_prims.append(ind)
+        if prim_lib is not None and not from_lib:
+            prim_lib.add(ind)
+        return True
+
+    # --- self-extending DSL (M6, arm E0): induce new primitives when the library
+    #     is insufficient, gated by the auto-derived-contract soundness check.
+    #     Fires BEFORE the solve loop so the model can use the new primitives from
+    #     iteration 0. NOTE: induction is PROACTIVE, not oracle-gated — the SMT
+    #     oracle's SAT verdict cannot distinguish "a built-in works" from
+    #     "abstraction too coarse to rule built-ins out" (a false-feasible), so
+    #     gating induction on UNSAT would miss exactly the tasks that need it. The
+    #     oracle verdict is recorded for analysis instead.
+    if cfg.dsl_required and cfg.induce_prims and task_smt is not None:
+        if cfg.prim_use_library:
+            prim_lib = PrimLibrary.load()
+            for e in prim_lib.candidates():
+                if len(induced_prims) >= cfg.max_induced_prims:
+                    break
+                # sound reuse: RE-DERIVE the contract from the stored code on THIS
+                # task (never trust a stored contract blindly).
+                ind = await gate_code(e.code, e.name, e.descr, pairs_np,
+                                      seed=cfg.seed, timeout_s=cfg.timeout_sandbox_s)
+                if ind is not None and await _admit(ind, from_lib=True):
+                    prim_lib.record_use(e.code, verified=True, solved=False)
+        # Fresh induction when library reuse supplied nothing usable: up to
+        # max_induced_prims proposal attempts, stop after the first admitted prim.
+        if not induced_prims:
+            for a in range(cfg.max_induced_prims):
+                rep: dict = {}
+                ind = await induce_primitive(generator, pairs_np,
+                                             name=f"induced_{len(induced_prims)}",
+                                             seed=cfg.seed + a, report=rep)
+                total_cost += rep.get("cost_usd", 0.0)
+                if await _admit(ind, from_lib=False):
+                    break
 
     # cross-task library: load + SOUND reuse (re-verify each candidate on THIS task).
     library: Optional[ContractLibrary] = None
@@ -136,16 +188,16 @@ async def solve_task(
     ]
     last_test: Optional[list[RunResult]] = None
 
-    total_cost = 0.0
-    total_ptok = 0
-    total_ctok = 0
-
     def finalize(result: ARCAGIResult) -> ARCAGIResult:
         runlog.learned = [lc.descr for lc in (store.learned if store else [])]
         if library is not None and store is not None:
             for lc in store.learned:
                 library.record_use(lc.code, verified=True, solved=runlog.solved)
             library.save()
+        if prim_lib is not None:
+            for ind in induced_prims:
+                prim_lib.record_use(ind.code, verified=True, solved=runlog.solved)
+            prim_lib.save()
         result["cost_usd"] = total_cost              # type: ignore[typeddict-unknown-key]
         log = runlog.to_dict()
         if store is not None:
@@ -162,6 +214,12 @@ async def solve_task(
                 for c in clause_store.clauses
             ]
             log["n_clauses"] = len(clause_store.clauses)
+        if cfg.induce_prims:
+            log["induced_prims"] = [
+                {"name": ind.name, "descr": ind.descr, "code": ind.code,
+                 "contract": ind.contract.render()} for ind in induced_prims
+            ]
+            log["n_induced"] = len(induced_prims)
         result["clarc_log"] = log                    # type: ignore[typeddict-unknown-key]
         return result
 
@@ -172,6 +230,12 @@ async def solve_task(
         base_prompt = (DSL_SOLVER_PROMPT if cfg.dsl_required
                        else LEAN_SOLVER_PROMPT if cfg.lean_prompt else SOLVER_PROMPT_1)
         message = _build_prompt(base_prompt, problem=problem_str)
+
+        # newly INDUCED primitives (E0): flag them so the model composes with them.
+        if induced_prims:
+            lines = ["NEWLY AVAILABLE PRIMITIVES (induced for this task — prefer them):"]
+            lines += [f"  {ind.name}()  — {ind.descr}" for ind in induced_prims]
+            message += "\n\n" + "\n".join(lines)
 
         # learned refutation clauses (D2): machine-checked impossibilities.
         if clause_store is not None and cfg.z3_inject:
@@ -223,7 +287,7 @@ async def solve_task(
             try:
                 if src is None:
                     raise DslError("no ```dsl fenced block found")
-                pipeline = parse_pipeline(src)
+                pipeline = parse_pipeline(src, dsl_registry)
             except DslError as e:
                 fb = (f"INVALID DSL ({e}). Answer with exactly one ```dsl block, "
                       f"steps separated by ';', only catalog primitives with "
@@ -277,7 +341,7 @@ async def solve_task(
                         prompt_tokens=g.prompt_tokens,
                         completion_tokens=g.completion_tokens))
                     continue
-            code = compile_pipeline(pipeline)
+            code = compile_pipeline(pipeline, dsl_registry)
         else:
             if g.code is None:
                 stage = ("gen_timeout" if g.error == "generator-timeout"
