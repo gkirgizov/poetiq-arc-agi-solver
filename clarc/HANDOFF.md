@@ -245,6 +245,22 @@ primitives gated by the SMT sufficiency oracle). M5 thus delivers the sound
 composable *framework* + object basis; M6 is where coverage actually grows.
 Reframes M5's "≥8/20 by hand-design" bar as the wrong target.
 
+## 3g. M5d — per-object shape signatures in σ (2026-06-14)
+
+Per the "sharpen the tool before M6" decision: σ now carries per-object SHAPE
+discrimination, not just size/color. Added `oshape[0..4]` (disjoint partition
+dot/hline/vline/rect/other, Sum==n_obj), `n_holed`, `n_border` — all linear WF,
+one labeling pass. Retrofitted (each fuzz-verified sound): geometry permutes
+hline↔vline under h/w-swap and preserves sizes/colors/holes/border; scale scales
+`osz` + preserves holes/border; crop_bbox preserves the whole object summary;
+selectors bound shape/hole/border by subset. recolor stays havoc (the bg-flip
+finding from M5c). New refutation power shown in tests: a line-rotation task
+refutes `flip_h` via `oshape` (rot90 stays feasible); `select_color` refutes the
+wrong color via exact `ocol`. 91 tests green. This makes both M5's basis and (the
+point) M6's auto-derived contracts able to express shape-conditional rules — the
+σ-delta sampling in M6 will range over these components. Coverage still ~2/40
+(applies unchanged — expected); the gain is refutation precision for M6.
+
 ## 3d. Predicate-loop history capture (commit dba9641)
 
 Per user request, every FUTURE experiment cell now dumps its complete
