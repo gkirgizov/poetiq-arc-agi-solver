@@ -256,10 +256,21 @@ hline↔vline under h/w-swap and preserves sizes/colors/holes/border; scale scal
 selectors bound shape/hole/border by subset. recolor stays havoc (the bg-flip
 finding from M5c). New refutation power shown in tests: a line-rotation task
 refutes `flip_h` via `oshape` (rot90 stays feasible); `select_color` refutes the
-wrong color via exact `ocol`. 91 tests green. This makes both M5's basis and (the
-point) M6's auto-derived contracts able to express shape-conditional rules — the
-σ-delta sampling in M6 will range over these components. Coverage still ~2/40
-(applies unchanged — expected); the gain is refutation precision for M6.
+wrong color via exact `ocol`. 91 tests green.
+
+**HONEST RESULT — σ-enrichment did NOT move aggregate refutation power.** Devset
+probe (`output/probe-dsl-m5d-devset.log`): 96.4% refutation, 0 false / 17,761 —
+**identical to the digit to M5c** (pre-shape). A targeted measurement explains
+why: of 10,346 non-fitting depth-1 candidates, **99.0% are refuted by dims+
+histogram alone**; the remaining 1% (99) are all caught by M5b's `osz`/`ocol`/
+`bbox`; the M5d shape fields are the SOLE discriminator for **0** of them (the
+real flip_h-vs-rot90 case just doesn't arise in this enumeration). **Conclusion:
+refutation power is saturated (~96–99%) from COARSE features — it is NOT the
+binding constraint. The wall is COVERAGE (expressible `apply`s), which only M6
+(induction) addresses.** M5d is kept (sound, cheap, 0 harm); its residual value
+is that M6's auto-derived contracts *can* express shape-conditional invariants —
+but expect no refutation gain. The "sharpen the tool first" hypothesis was
+reasonable, and measurement (partially) refuted it: the tool wasn't dull.
 
 ## 3d. Predicate-loop history capture (commit dba9641)
 
