@@ -144,28 +144,26 @@ async def solve_task(
     #     gating induction on UNSAT would miss exactly the tasks that need it. The
     #     oracle verdict is recorded for analysis instead.
     if cfg.dsl_required and cfg.induce_prims and task_smt is not None:
+        # Library reuse: re-derive the top-utility prims' contracts on THIS task
+        # (sound reuse; cap to a few so the registry doesn't bloat). Reuse is
+        # ADDITIVE — it never blocks fresh induction, because a stored prim being
+        # SOUND on this task does not make it RELEVANT to this task.
         if cfg.prim_use_library:
             prim_lib = PrimLibrary.load()
-            for e in prim_lib.candidates():
-                if len(induced_prims) >= cfg.max_induced_prims:
-                    break
-                # sound reuse: RE-DERIVE the contract from the stored code on THIS
-                # task (never trust a stored contract blindly).
+            for e in prim_lib.candidates()[: max(1, cfg.max_induced_prims)]:
                 ind = await gate_code(e.code, e.name, e.descr, pairs_np,
                                       seed=cfg.seed, timeout_s=cfg.timeout_sandbox_s)
-                if ind is not None and await _admit(ind, from_lib=True):
-                    prim_lib.record_use(e.code, verified=True, solved=False)
-        # Fresh induction when library reuse supplied nothing usable: up to
-        # max_induced_prims proposal attempts, stop after the first admitted prim.
-        if not induced_prims:
-            for a in range(cfg.max_induced_prims):
-                rep: dict = {}
-                ind = await induce_primitive(generator, pairs_np,
-                                             name=f"induced_{len(induced_prims)}",
-                                             seed=cfg.seed + a, report=rep)
-                total_cost += rep.get("cost_usd", 0.0)
-                if await _admit(ind, from_lib=False):
-                    break
+                await _admit(ind, from_lib=True)
+        # Fresh, task-specific induction: ALWAYS attempt (the task usually needs a
+        # new rule), up to max attempts, stop after the first admitted prim.
+        for a in range(cfg.max_induced_prims):
+            rep: dict = {}
+            ind = await induce_primitive(generator, pairs_np,
+                                         name=f"ind_{cfg.problem_id or 'x'}_{a}",
+                                         seed=cfg.seed + a, report=rep)
+            total_cost += rep.get("cost_usd", 0.0)
+            if await _admit(ind, from_lib=False):
+                break
 
     # cross-task library: load + SOUND reuse (re-verify each candidate on THIS task).
     library: Optional[ContractLibrary] = None

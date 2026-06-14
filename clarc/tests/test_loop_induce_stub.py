@@ -32,7 +32,7 @@ INDUCE_CODE = ('import numpy as np\nDESCRIPTION = "overlay the transpose"\n'
                '    g = np.asarray(grid)\n'
                '    return np.where(g != 0, g, g.T)\n')
 PROPOSAL = f"```python\n{INDUCE_CODE}\n```"
-USE_IT = "```dsl\ninduced_0()\n```"
+USE_IT = "```dsl\nind_sym_0()\n```"   # induced name = ind_{problem_id}_{attempt}
 
 
 async def test_e0_induces_missing_primitive_and_solves():
@@ -40,12 +40,13 @@ async def test_e0_induces_missing_primitive_and_solves():
     # iteration with a pipeline using the induced primitive.
     gen = StubGenerator([PROPOSAL, USE_IT])
     cfg = ClarcConfig(max_iterations=4, seed=0, shuffle_examples=False,
-                      timeout_sandbox_s=10.0, prim_use_library=False, **ARMS["E0"])
+                      timeout_sandbox_s=10.0, prim_use_library=False,
+                      problem_id="sym", **ARMS["E0"])
     res = await solve_task(train_in=TRAIN_IN, train_out=TRAIN_OUT, test_in=TEST_IN,
                            generator=gen, config=cfg, arm="E0")
     log = res["clarc_log"]
     assert log["n_induced"] >= 1, log
-    assert log["induced_prims"][0]["name"] == "induced_0"
+    assert log["induced_prims"][0]["name"] == "ind_sym_0"
     assert log["solved"] is True
     import json
     assert json.loads(res["results"][0]["output"]) == _sym(TEST_IN[0]).tolist()
