@@ -51,6 +51,10 @@ ARMS = {
                induce_prims=True),                               # primitives when the library is insufficient
     "E1": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # + DYNAMIC OBJECTS: induce rules over
                induce_prims=True, dynamic_objects=True),         # task-chosen segmentation (recolor/move/drop)
+    # --- GUIDED code-gen (the goal): poetiq A0 + the logical dual as a GUIDE ---
+    "G0": dict(),   # == A0 control (no duals), routed through clarc.solver.guided_solve
+    "G1": dict(),   # + object-correspondence dual (constraints + counterexamples)
+    "G2": dict(),   # + object + sigma duals
 }
 
 

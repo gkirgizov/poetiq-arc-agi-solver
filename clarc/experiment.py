@@ -66,8 +66,13 @@ async def _run(tid, task, arm, gen, *, iters, seed, sem, timeout, lean=False):
         test_in = [e["input"] for e in task["test"]]
         cfg = ClarcConfig(model=None, max_iterations=iters, seed=seed, lean_prompt=lean,
                           request_timeout_s=timeout, problem_id=tid, **ARMS[arm])
-        res = await solve_task(train_in=ti, train_out=to, test_in=test_in,
-                               generator=gen, config=cfg, arm=arm)
+        if arm.startswith("G"):   # guided code-gen (A0 + logical dual)
+            from clarc.solver import guided_solve
+            res = await guided_solve(train_in=ti, train_out=to, test_in=test_in,
+                                     generator=gen, config=cfg, arm=arm)
+        else:
+            res = await solve_task(train_in=ti, train_out=to, test_in=test_in,
+                                   generator=gen, config=cfg, arm=arm)
         preds = build_kaggle_two_attempts([res], test_in)
         return res, preds
 
