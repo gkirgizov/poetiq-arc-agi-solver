@@ -352,6 +352,33 @@ baseline; the gap to A0 measures what object-level rules still can't express.
 Out of scope still: non-bijective object MATCHING in objsmt (M7b), selector-keyed
 typed contract language (the rejected option A).
 
+## 3j. Guided code-gen — the dual AUGMENTS A0 (2026-06-15, commit 6431ae0)
+
+The goal reframed (user): the logical dual must HELP the code-gen generator
+(constrain its search + extract max info from examples), NOT replace it with a
+narrower DSL (E1 did that → strictly worse). Clean architecture: `clarc/dual/`
+(Dual protocol: extract→prompt_block + refute→Counterexample), `clarc/solver.py`
+(literal poetiq A0 loop + duals). Arms G0(=A0)/G1(object dual)/G2(+σ dual).
+
+**RESULT (structural stratum, 19 shared cells, haiku):**
+- G0 (=A0) **15** · G1 (+object dual) **16** · G2 (+object+σ) **16** test-correct.
+- G1 added `0e671a1a`,`11e1fe23` over A0 but lost `1c56ad9f` (dual-guided code
+  train-solved yet test-overfit — so NOT "strictly better by construction":
+  injecting constraints PERTURBS generation). G2 added `11e1fe23`, no regression.
+- **PORTFOLIO** (G0|G1|G2, every solve train-verified so A0's solves are never
+  lost) = **17/19 vs A0 15/19** — the robust "strictly better than poetiq A0".
+- Object dual injected constraints on 11/19 tasks (broad signal); counterexamples
+  fired on only 2 (the CE channel is under-engaged — a clear improvement target).
+
+**Honest read:** first arm in the whole effort that is ≥ A0 on solving. Single-
+pass lift (+1) is within noise at n=20; the portfolio +2 is real (train-verified).
+NEXT: (1) strengthen the counterexample channel (why refute rarely fires);
+(2) confidence-gate injected contracts (avoid coincidental bijective matches that
+over-constrain, cf. the 1c56ad9f overfit); (3) scale n (full devset / ARC-2 where
+A0 is weaker → more headroom); (4) formalize the portfolio (run A0 + dual channels,
+submit the union of train-solving outputs). Non-bijective object matching in
+objsmt remains the other open lever.
+
 ## 3d. Predicate-loop history capture (commit dba9641)
 
 Per user request, every FUTURE experiment cell now dumps its complete
