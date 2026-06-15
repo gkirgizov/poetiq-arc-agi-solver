@@ -46,6 +46,9 @@ class Object:
     bw: int
     shape_hash: int             # exact bbox mask pattern (position/color-blind)
     shape_canon: int            # D4-canonical (rotation/reflection invariant)
+    shape: str                  # human-readable class: dot|hline|vline|rect|other
+    n_holes: int                # enclosed background holes
+    is_border: bool             # touches the grid edge
 
     @property
     def cells(self) -> np.ndarray:
@@ -60,10 +63,17 @@ def _mk_object(g: np.ndarray, mask: np.ndarray) -> Object:
     crop = mask[t:b + 1, l:r + 1]
     vals, cnts = np.unique(g[mask], return_counts=True)
     dom = int(vals[np.flatnonzero(cnts == cnts.max()).min()])
+    size = int(mask.sum())
+    bh, bw = b - t + 1, r - l + 1
+    shape = ("dot" if size == 1 else "hline" if bh == 1 else "vline" if bw == 1
+             else "rect" if size == bh * bw else "other")
+    holed = int(ndimage.binary_fill_holes(mask).sum()) > size
+    H, W = g.shape
     return Object(mask=mask, color=dom, palette=frozenset(int(v) for v in vals),
-                  size=int(mask.sum()), top=t, left=l, bh=b - t + 1, bw=r - l + 1,
+                  size=size, top=t, left=l, bh=bh, bw=bw,
                   shape_hash=hash((crop.shape, crop.tobytes())),
-                  shape_canon=_canon_shape(crop))
+                  shape_canon=_canon_shape(crop), shape=shape, n_holes=int(holed),
+                  is_border=bool(t == 0 or l == 0 or b == H - 1 or r == W - 1))
 
 
 # --------------------------------------------------------------------------- #

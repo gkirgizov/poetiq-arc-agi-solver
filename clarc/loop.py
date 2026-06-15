@@ -36,7 +36,7 @@ from clarc.analyze import parse_grid, render_violation_feedback
 from clarc.clauses import ClauseStore, _facts_nl
 from clarc.dsl import REGISTRY, compile_pipeline, render_catalog
 from clarc.dslparse import DslError, extract_dsl_block, parse_pipeline
-from clarc.learn_prim import gate_code, induce_primitive
+from clarc.learn_prim import gate_code, induce_object_rule, induce_primitive
 from clarc.prim_library import PrimLibrary
 from clarc.instrument import IterRecord, RunLog
 from clarc.learn import induced_violations, propose_contract, verify_on_pairs
@@ -155,12 +155,15 @@ async def solve_task(
                                       seed=cfg.seed, timeout_s=cfg.timeout_sandbox_s)
                 await _admit(ind, from_lib=True)
         # Fresh, task-specific induction: ALWAYS attempt (the task usually needs a
-        # new rule), up to max attempts, stop after the first admitted prim.
+        # new rule), up to max attempts, stop after the first admitted prim. E1
+        # (dynamic_objects) induces a rule over DYNAMICALLY-segmented objects
+        # (recolor/move/drop); E0 uses the fixed-4-conn recolor/select kinds.
         for a in range(cfg.max_induced_prims):
             rep: dict = {}
-            ind = await induce_primitive(generator, pairs_np,
-                                         name=f"ind_{cfg.problem_id or 'x'}_{a}",
-                                         seed=cfg.seed + a, report=rep)
+            inducer = induce_object_rule if cfg.dynamic_objects else induce_primitive
+            ind = await inducer(generator, pairs_np,
+                                name=f"ind_{cfg.problem_id or 'x'}_{a}",
+                                seed=cfg.seed + a, report=rep)
             total_cost += rep.get("cost_usd", 0.0)
             if await _admit(ind, from_lib=False):
                 break

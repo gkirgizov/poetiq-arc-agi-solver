@@ -365,6 +365,62 @@ def scaffold_source(kind: str, rule_code: str) -> str:
     return _OBJVIEW_SRC + "\n" + rule_code.strip() + "\n" + _SCAFFOLD[kind]
 
 
+# --------------------------------------------------------------------------- #
+# M7c: unified object-rule over DYNAMICALLY-segmented objects with rich typed
+# attributes. The recognizer (LLM) chooses HOW to see objects (the segmentation)
+# AND writes one rule over the generating basis; the rule returns a per-object
+# spec — recolor / move / drop — so it covers marker-erase, object movement and
+# conditional recoloring that the fixed-4-conn recolor/select kinds cannot.
+# --------------------------------------------------------------------------- #
+
+_OBJ_RULE_SCAFFOLD = '''
+import numpy as np
+from clarc.objects import segment as _segment
+from clarc.contracts import bg as _bgf
+{rule_code}
+def transform(grid):
+    g = np.asarray(grid, dtype=int)
+    bg = int(_bgf(g)); H, W = g.shape
+    objs = _segment(g, "{strategy}")
+    scene = [dict(color=o.color, size=o.size, top=o.top, left=o.left, h=o.bh, w=o.bw,
+                  shape=o.shape, n_holes=o.n_holes, is_border=o.is_border,
+                  cells=o.cells.copy()) for o in objs]
+    out = np.full((H, W), bg, dtype=int)
+    for o, sc in zip(objs, scene):
+        spec = rule(sc, scene)
+        if spec is None:
+            continue                       # drop this object
+        if isinstance(spec, dict):
+            color = spec.get("color", sc["color"]); dr = spec.get("dr", 0); dc = spec.get("dc", 0)
+        else:
+            color = spec; dr = dc = 0       # bare int = recolor in place
+        for i, j in zip(*np.nonzero(o.mask)):
+            r, c = int(i) + dr, int(j) + dc
+            if 0 <= r < H and 0 <= c < W:
+                out[r, c] = int(color)
+    return out
+'''
+
+
+def scaffold_object_rule(strategy: str, rule_code: str) -> str:
+    return _OBJ_RULE_SCAFFOLD.replace("{rule_code}", rule_code.strip()).replace(
+        "{strategy}", strategy)
+
+
+def parse_object_rule(raw: str):
+    """Extract (segmentation, rule_code, descr) from an object-rule reply."""
+    import re
+    from clarc.objects import SEGMENTERS
+    blocks = re.findall(r"```(?:python)?\s*(.*?)```", raw or "", re.S | re.I)
+    body = blocks[-1] if blocks else (raw or "")
+    if "def rule" not in body:
+        return None, None, None
+    sm = re.search(r'SEGMENT\s*=\s*["\'](\w+)["\']', body)
+    strategy = sm.group(1) if sm and sm.group(1) in SEGMENTERS else "connected4"
+    dm = re.search(r'DESCRIPTION\s*=\s*["\'](.+?)["\']', body)
+    return strategy, body, (dm.group(1) if dm else None)
+
+
 def parse_rule(raw: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Extract (kind, rule_code, descr) from an induction reply. Returns
     (None, None, None) if no valid rule of a known kind is present."""
@@ -440,3 +496,90 @@ def build_induce_prompt(train_pairs) -> str:
                       f"Pair {i} output:\n{_example_to_diagram(np.asarray(go).tolist())}")
     # .replace (not .format): the prompt's example contains literal { } braces.
     return _INDUCE_PROMPT.replace("{pairs}", "\n\n".join(blocks))
+
+
+_OBJ_PROMPT = """You are extending a TYPED, COMPOSITIONAL ARC solver. The solver can SEGMENT a
+grid into objects in several ways; you choose the segmentation that makes the rule
+cleanest, then write ONE rule over the detected objects' attributes.
+
+Segmentations (pick one via SEGMENT="..."): connected4, connected8, samecolor4
+(split by color too), by_color (one object per color, even if scattered),
+by_row, by_col.
+
+Each object `o` is a dict: o['color'], o['size'], o['top'], o['left'], o['h'],
+o['w'] (bbox), o['shape'] ('dot'|'hline'|'vline'|'rect'|'other'), o['n_holes'],
+o['is_border'], o['cells'] (numpy bbox). `scene` is all objects (for relational
+rules: rank by size, find a marker, count, etc.).
+
+Write `rule(o, scene)` returning the per-object action — reason ONLY over the
+attributes, never raw pixels:
+  - an int            → recolor the whole object to that color
+  - {"color": c, "dr": dr, "dc": dc} → recolor to c and move by (dr rows, dc cols)
+  - None              → delete the object (erase to background)
+
+Reply with ONE code block containing SEGMENT, DESCRIPTION and def rule. Make it
+GENERAL (tested on other grids, reused on other tasks). Example:
+
+```python
+SEGMENT = "by_color"
+DESCRIPTION = "delete the marker color (1); recolor every other object to it"
+def rule(o, scene):
+    if o['color'] == 1:
+        return None
+    return 1
+```
+
+TRAINING PAIRS (with objects under connected4 and by_color):
+{pairs}
+"""
+
+
+def build_object_prompt(train_pairs) -> str:
+    from arc_agi.solve_coding import _example_to_diagram
+    from clarc.objects import segment as _seg
+    blocks = []
+    for i, (gi, go) in enumerate(train_pairs, 1):
+        gi = np.asarray(gi)
+        views = []
+        for strat in ("connected4", "by_color"):
+            objs = _seg(gi, strat)
+            ds = "; ".join(f"{o.color}:{o.shape}@({o.top},{o.left}) sz{o.size}"
+                           for o in objs[:10])
+            views.append(f"    [{strat}] {ds}")
+        blocks.append(f"Pair {i} input:\n{_example_to_diagram(gi.tolist())}\n"
+                      f"Pair {i} objects:\n" + "\n".join(views) + "\n"
+                      f"Pair {i} output:\n{_example_to_diagram(np.asarray(go).tolist())}")
+    return _OBJ_PROMPT.replace("{pairs}", "\n\n".join(blocks))
+
+
+async def induce_object_rule(
+    generator: Generator,
+    train_pairs: list[tuple[np.ndarray, np.ndarray]], *,
+    name: str, seed: int, n_derive: int = 24, n_verify: int = 24,
+    min_samples: int = 8, timeout_s: float = 10.0, report: Optional[dict] = None,
+) -> Optional[InducedPrimitive]:
+    """M7c: induce a rule over DYNAMICALLY-segmented objects (recolor/move/drop).
+    Gated by the auto-derived σ contract; the richer SMT object-contract dual is
+    attached for interpretability/reuse."""
+    if report is None:
+        report = {}
+    g: GenOutput = await generator.generate(build_object_prompt(train_pairs), seed=seed)
+    report.update(stage="no-rule", cost_usd=g.cost_usd, descr=None)
+    strategy, rule_code, descr = parse_object_rule(g.raw or "")
+    if strategy is None:
+        return None
+    code = scaffold_object_rule(strategy, rule_code)
+    report.update(kind="object", segmentation=strategy)
+    ind = await gate_code(code, name, descr or name, train_pairs, seed=seed,
+                          n_derive=n_derive, n_verify=n_verify, kind="object",
+                          min_samples=min_samples, timeout_s=timeout_s, report=report)
+    if ind is not None:
+        # attach the SMT object-correspondence contract (the logical dual) for the log
+        try:
+            from clarc.objsmt import induce_object_contracts
+            oc = induce_object_contracts([(np.asarray(gi), np.asarray(go))
+                                          for gi, go in train_pairs])
+            report["obj_contract"] = oc.render() if oc else None
+        except (ValueError, KeyError):
+            report["obj_contract"] = None
+    return ind

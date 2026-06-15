@@ -101,6 +101,8 @@ class ClarcConfig:
     induce_on_unsat: bool = True   # trigger induction when the SMT oracle says UNSAT@depth
     max_induced_prims: int = 3     # cap induced prims per task
     prim_use_library: bool = True  # load/persist the cross-task induced-primitive library
+    dynamic_objects: bool = False  # M7c: induce rules over DYNAMICALLY-segmented objects
+                                   # (recolor/move/drop) instead of fixed-4-conn recolor/select
     # --- adaptive contract learning (Phase 4) ---
     learn_contracts: bool = False     # induce new invariants from semantic conflicts
     max_learned: int = 3              # cap induced contracts per task

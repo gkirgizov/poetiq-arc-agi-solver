@@ -49,6 +49,8 @@ ARMS = {
     "D2": dict(dsl_required=True, z3_refute=True, z3_learn=True),  # + clause learning (+prompt inject)
     "E0": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # + SELF-EXTENSION: induce new
                induce_prims=True),                               # primitives when the library is insufficient
+    "E1": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # + DYNAMIC OBJECTS: induce rules over
+               induce_prims=True, dynamic_objects=True),         # task-chosen segmentation (recolor/move/drop)
 }
 
 
