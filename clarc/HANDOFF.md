@@ -26,6 +26,36 @@ blocker analysis (kept for context); §2 lists the alternative paths (now moot).
 
 ---
 
+## 0. DATA INDEX — where every run's results live (don't rerun baselines!)
+
+**All results are on disk under `output/<run>/` but `output/` is GITIGNORED**
+(local-only; the numbers are committed here in prose, the raw per-cell data is
+not in git). Each dir has `runs.jsonl` (one JSON line/cell: task, arm, solved,
+acc, iters, cost, refuted, exec, …) and `logs/B_<task>_<arm>.json` (full
+per-iteration detail: induced prims/contracts, segmentation, counterexamples).
+Read a summary with: `uv run python -m clarc.experiment --report-only --out <dir>`.
+NOTE: the `E0` arm label means DIFFERENT things across dirs (see rows).
+
+| run | path | arm(s) → test-correct |
+|---|---|---|
+| **A0 baseline (poetiq free-form code-gen), structural-20** | `output/exp-e0-struct` | **A0 → 15/19**, D2(DSL-only) → 0/19, E0(buggy, ignore) → 1/8 |
+| **Guided code-gen (§3j): the WIN** | `output/exp-guided-struct` | G0(=A0) 15, G1(+obj) 16, G2(+obj+σ) 16; **portfolio 17/19** |
+| E0 FREE-FORM induction (§3h, 1st M6d) | `output/exp-e0-struct2` | E0 → 13/20 |
+| E0 fixed-object DECOMPOSED (§3f) | `output/exp-e0-decomp` | E0 → 1/20 |
+| E1 dynamic-object (§3i, stopped early) | `output/exp-e1-struct` | E1 → 1/14 |
+| M6d partial D0/D1/D2 (§3h) | `output/exp-dsl-haiku` | D0/D1/D2 ≈ 1 each (mechanism-only) |
+| smokes | `output/smoke-{e0,e1,dsl,bounded}` | tiny |
+| ARC-2 bounded sonnet n=35 (§3a) | `output/exp-arc2-s45-t4k` | A0/A5/A1/A1L (3.8/3.8/3.8/6.2%) |
+| ARC-2 opus (§3c) | `output/exp-arc2-opus48` | A0 63.1% / A1L 58.3% (band-14) |
+| $0 probes (§3e/3g) | `output/probe-dsl-*.log`, `output/opus-floor-sample.log` | refutation-power / coverage |
+| earliest ARC-1/2 sweeps (§3) | `output/exp-arc1-sonnet`, `output/experiment{,-arc2}` | see §3 |
+
+Devset (the structural-20 + logic-20 band): ids in `clarc/devset_ids.json`.
+The induced-primitive / contract libraries snapshot to `<dir>/prim_library.final.json`
+and `<dir>/contract_library.final.json` at run end.
+
+---
+
 ## 1. The original blocker (resolved above; kept for context)
 
 The hypothesis test needs a generator that BOTH (a) returns fast on hard tasks and
