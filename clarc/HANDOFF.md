@@ -315,6 +315,43 @@ the 0-coverage structural stratum) with pinned `claude-haiku-4-5` — does
 induction lift coverage, and do induced prims get reused across tasks (the
 persistence payoff)?
 
+## 3i. M7 — dynamic objects + object-correspondence SMT dual (2026-06-14/15)
+
+The faithful turn (user steered hard here): the system must INVENT how it sees
+objects per task AND their contracts — not inherit fixed 4-conn objects + fixed
+attributes. Two wrong turns corrected: (1) M6 induction asked for a free-form
+transform(grid) = code-gen (E0≈A0); (2) even the "decomposed" fix used FIXED
+4-conn objects → measured **1/20 structural** (vs free-form code-gen A0 15/20,
+DSL-only D2 0/20). So objects+attributes must be dynamic+rich.
+
+Built (commits ae75630, 708a0a0, 5c0f7f5, 5ceca36; 110 tests):
+- **M7a `objects.py`/`objsmt.py`** — the dual: dynamic segmentation
+  (connected4/8, samecolor, by_color, by_row/col — system chooses how to see
+  objects), `Object` carries the generating basis (color/size/pos/bbox/shape/
+  shape_canon/holes/border); z3 encodes object attrs + an explicit input↔output
+  MATCHING + a contract menu (shape/color/pos/size) with params shared across
+  pairs. `induce_object_contracts` (z3.Optimize: strongest contracts + matching
+  consistent on all train) ; `check_output` refutes.
+- **M7b `objsolve.py`** — solve-by-contract: when contracts are forward-
+  deterministic, APPLY them to the test input (the logic IS the program), verified
+  by reproducing train. $0 probe: uniform menu solves 0/20 structural — DIAGNOSTIC:
+  they need (a) non-bijective matching (009d5c81 erases markers → count changes)
+  and (b) per-object CONDITIONAL contracts (transform = f(attrs/scene)).
+- **M7c arm E1** (user chose: LLM rule over typed attrs) — `induce_object_rule`:
+  the recognizer (LLM) CHOOSES the segmentation AND writes one `rule(o, scene)`
+  over the rich attributes returning a per-object spec (int=recolor /
+  {color,dr,dc}=recolor+move / None=DROP). Scaffolded detect→rule→render; gated by
+  the σ contract; the SMT object-contract attached as the logical dual. Handles
+  marker-erase/move/conditional-recolor that fixed objects could not.
+
+**NEXT (gated, paid):** E1 vs A0 (free-form code-gen upper bound) vs the 1/20
+fixed-object baseline, structural stratum, pinned claude-haiku-4-5 — does
+dynamic-object decomposition recover solving while staying faithful (typed
+objects + SMT dual)? Pre-registered: E1 should beat the 1/20 fixed-object
+baseline; the gap to A0 measures what object-level rules still can't express.
+Out of scope still: non-bijective object MATCHING in objsmt (M7b), selector-keyed
+typed contract language (the rejected option A).
+
 ## 3d. Predicate-loop history capture (commit dba9641)
 
 Per user request, every FUTURE experiment cell now dumps its complete
