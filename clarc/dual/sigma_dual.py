@@ -31,6 +31,12 @@ class SigmaDual:
             return ""
         return self.spec.render_for_prompt()
 
+    def active_names(self) -> list[str]:
+        """Invariant names actually injected into the prompt (for per-iteration logs)."""
+        if self.spec is None or self.spec.is_empty():
+            return []
+        return [c.name for c in self.spec.contracts]
+
     def refute(self, cand_pairs: list[Pair]) -> Optional[Counterexample]:
         if self.spec is None or self.spec.is_empty():
             return None
@@ -38,7 +44,8 @@ class SigmaDual:
         produced = [None if co is None else np.asarray(co) for _, co in cand_pairs]
         violated = self.spec.violations(ti, produced)
         if violated:
-            return Counterexample("invariant", f"your output violates: {violated[0].descr}")
+            detail = "; ".join(v.descr for v in violated)   # all violated invariants, not just one
+            return Counterexample("invariant", f"your output violates: {detail}")
         return None
 
 

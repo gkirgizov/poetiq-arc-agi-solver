@@ -53,8 +53,10 @@ ARMS = {
                induce_prims=True, dynamic_objects=True),         # task-chosen segmentation (recolor/move/drop)
     # --- GUIDED code-gen (the goal): poetiq A0 + the logical dual as a GUIDE ---
     "G0": dict(),   # == A0 control (no duals), routed through clarc.solver.guided_solve
-    "G1": dict(),   # + object-correspondence dual (constraints + counterexamples)
-    "G2": dict(),   # + object + sigma duals
+    "G1": dict(),   # + object-correspondence dual (ungated constraints + vague CE) — control
+    "G2": dict(),   # + object + sigma duals — control
+    "G3": dict(),   # + confidence-GATED object dual + witness-decoding (strong) CE + soft phrasing
+    "G4": dict(),   # G3 + sigma
 }
 
 

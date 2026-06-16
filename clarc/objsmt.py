@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import z3
+from scipy.optimize import linear_sum_assignment
 
 from clarc.objects import MAX_OBJECTS, Object, SEGMENTERS, segment
 
@@ -47,6 +48,8 @@ class ObjectContracts:
     ksz: int = 1
     score: float = 0.0
     counts_ok: bool = True              # every train pair was bijective
+    tiers: dict = field(default_factory=dict)   # name -> "hard"|"soft"|"drop" (set by objconf.gate;
+                                                # empty = ungated, treat all `used` as injected)
 
     def render(self) -> str:
         parts = []
@@ -200,3 +203,126 @@ def check_output(in_objs: list[Object], out_objs: list[Object],
             for c in contracts.used:
                 s.add(z3.Implies(M[i][j], _contract_term(c, oi[i], oo[j], P)))
     return s.check() == z3.sat
+
+
+# --------------------------------------------------------------------------- #
+# Witness-decoding refutation: turn a REFUTED candidate into a per-object, per-term
+# "this should be X, but it is Y" — the actionable CEGIS repair signal. The decision
+# (is the candidate refuted?) stays with check_output / count; this only EXPLAINS an
+# already-decided refutation, so a heuristic match can only weaken the wording, never
+# fabricate a counterexample.
+# --------------------------------------------------------------------------- #
+
+@dataclass
+class TermViolation:
+    example: int            # 1-based train example index
+    kind: str               # "term" | "cell" | "extra" | "missing"
+    term: str               # menu term name, or "object_count" / "cell"
+    expected: str           # what the rule says this object/cell SHOULD be
+    actual: str             # what the candidate produced
+    in_key: object = None   # (top,left) of the INPUT object — stable across re-segmentation
+    out_pos: object = None  # (top,left) of the PRODUCED object / (r,c) of the cell
+    n_objects_hit: int = 1
+
+
+def _term_violated(name: str, ai: Object, bj: Object, c: ObjectContracts) -> bool:
+    """Plain-Python mirror of `_contract_term` for a matched (input ai, output bj)."""
+    if name == "shape_exact":
+        return bj.shape_hash != ai.shape_hash
+    if name == "shape_canon":
+        return bj.shape_canon != ai.shape_canon
+    if name == "color_preserved":
+        return bj.color != ai.color
+    if name == "color_map":
+        return not (0 <= ai.color < 10) or c.pi[ai.color] != bj.color
+    if name == "size_preserved":
+        return bj.size != ai.size
+    if name == "size_scale":
+        return bj.size != c.ksz * ai.size
+    if name == "pos_preserved":
+        return (bj.top, bj.left) != (ai.top, ai.left)
+    if name == "pos_shift":
+        return (bj.top, bj.left) != (ai.top + c.dr, ai.left + c.dc)
+    if name == "bbox_preserved":
+        return (bj.bh, bj.bw) != (ai.bh, ai.bw)
+    return False
+
+
+def _expected_actual(name: str, ai: Object, bj: Object, c: ObjectContracts) -> tuple[str, str]:
+    if name == "color_preserved":
+        return f"color {ai.color}", f"color {bj.color}"
+    if name == "color_map":
+        e = c.pi[ai.color] if 0 <= ai.color < 10 else ai.color
+        return f"color {e} (rule maps {ai.color}→{e})", f"color {bj.color}"
+    if name == "size_preserved":
+        return f"{ai.size} cells", f"{bj.size} cells"
+    if name == "size_scale":
+        return f"{c.ksz * ai.size} cells ({c.ksz}× the input's {ai.size})", f"{bj.size} cells"
+    if name == "pos_preserved":
+        return f"top-left at ({ai.top},{ai.left})", f"top-left at ({bj.top},{bj.left})"
+    if name == "pos_shift":
+        return (f"top-left at ({ai.top + c.dr},{ai.left + c.dc}) — input ({ai.top},{ai.left}) "
+                f"shifted by ({c.dr},{c.dc})", f"top-left at ({bj.top},{bj.left})")
+    if name == "bbox_preserved":
+        return f"a {ai.bh}×{ai.bw} bounding box", f"a {bj.bh}×{bj.bw} one"
+    if name == "shape_canon":
+        return "the input's shape up to rotation/reflection", "a different shape"
+    return f"the input {ai.shape}'s exact shape", "a different cell pattern"   # shape_exact
+
+
+def _match_cost(ai: Object, bj: Object, c: ObjectContracts) -> float:
+    """Distance from bj to where the induced rule would put ai (so the match tracks the
+    rule's intent). Lower = more plausibly the same object post-transform."""
+    dr, dc = (c.dr, c.dc) if "pos_shift" in c.used else (0, 0)
+    k = c.ksz if "size_scale" in c.used else 1
+    pos = abs(ai.top + dr - bj.top) + abs(ai.left + dc - bj.left)
+    shape = 0.0 if ai.shape_canon == bj.shape_canon else 3.0
+    size = abs(bj.size - k * ai.size) / max(1, ai.size)
+    return pos + shape + 2.0 * size
+
+
+# above this best-match cost the pair is too dissimilar to assert "should be" wording
+_MATCH_COST_MAX = 12.0
+
+
+def diagnose_output(in_objs, out_objs, contracts, *, example: int = 1,
+                    names=None, max_terms: int = 3) -> list[TermViolation]:
+    """Structured witness for a candidate output already known to be inconsistent
+    (count mismatch OR check_output False). Hungarian-matches produced→expected objects
+    on the rule-anchored cost, then reports the violated `names` terms + unmatched
+    objects. Returns [] only if it can't decode (defensive)."""
+    names = list(contracts.used if names is None else names)
+    viols: list[TermViolation] = []
+    n, m = len(in_objs), len(out_objs)
+    matched_i: set[int] = set()
+    matched_j: set[int] = set()
+    if n and m:
+        cost = np.array([[_match_cost(ai, bj, contracts) for bj in out_objs] for ai in in_objs])
+        ri, cj = linear_sum_assignment(cost)
+        for i, j in zip(ri, cj):
+            matched_i.add(int(i)); matched_j.add(int(j))
+            ai, bj = in_objs[i], out_objs[j]
+            if cost[i, j] > _MATCH_COST_MAX:
+                continue                                  # too dissimilar to name a correspondence
+            for name in names:
+                if _term_violated(name, ai, bj, contracts):
+                    exp, act = _expected_actual(name, ai, bj, contracts)
+                    viols.append(TermViolation(example, "term", name, exp, act,
+                                               (ai.top, ai.left), (bj.top, bj.left)))
+    for j in range(m):
+        if j not in matched_j:
+            bj = out_objs[j]
+            viols.append(TermViolation(example, "extra", "object_count",
+                         "no object here (the rule keeps the input's objects)",
+                         f"an extra {bj.shape} at ({bj.top},{bj.left})",
+                         None, (bj.top, bj.left)))
+    for i in range(n):
+        if i not in matched_i:
+            ai = in_objs[i]
+            viols.append(TermViolation(example, "missing", "object_count",
+                         f"a counterpart for the input {ai.shape} at ({ai.top},{ai.left})",
+                         "no matching object in your output", (ai.top, ai.left), None))
+    # rank: structural correspondence (extra/missing) first, then terms; cap the noise
+    order = {"missing": 0, "extra": 0, "term": 1, "cell": 1}
+    viols.sort(key=lambda v: order.get(v.kind, 2))
+    return viols[:max_terms]

@@ -87,6 +87,37 @@ def test_solve_by_contracts_rejects_conditional_task():
     assert preds is None       # no global color-map fits both -> uniform menu declines
 
 
+def test_diagnose_output_localizes_color_violation():
+    """The witness decoder pinpoints WHICH object violates WHICH term, with the target
+    value — the actionable CEGIS signal (vs the old 'objects do not match')."""
+    from clarc.objects import segment as seg
+    from clarc.objsmt import diagnose_output
+
+    def swap(g):
+        o = g.copy(); o[g == 1] = 2; o[g == 2] = 1
+        return o
+    g1, g2 = np.array([[1, 1, 0], [0, 0, 0], [0, 2, 2]]), np.array([[0, 1, 0], [2, 0, 0], [0, 0, 2]])
+    c = induce_object_contracts([(g1, swap(g1)), (g2, swap(g2))])
+    wrong = swap(g1); wrong[g1 == 1] = 1                    # leave the color-1 object un-swapped
+    viols = diagnose_output(seg(g1, c.segmentation), seg(wrong, c.segmentation), c)
+    cm = [v for v in viols if v.term == "color_map"]
+    assert cm and "2" in cm[0].expected and "color 1" in cm[0].actual
+
+
+def test_diagnose_output_names_missing_object_on_count_mismatch():
+    from clarc.objects import segment as seg
+    from clarc.objsmt import diagnose_output
+
+    def swap(g):
+        o = g.copy(); o[g == 1] = 2; o[g == 2] = 1
+        return o
+    g1, g2 = np.array([[1, 1, 0], [0, 0, 0], [0, 2, 2]]), np.array([[0, 1, 0], [2, 0, 0], [0, 0, 2]])
+    c = induce_object_contracts([(g1, swap(g1)), (g2, swap(g2))])
+    empty = np.zeros((3, 3), dtype=int)                     # 0 objects vs the input's 2
+    viols = diagnose_output(seg(g1, c.segmentation), seg(empty, c.segmentation), c)
+    assert viols and all(v.kind == "missing" for v in viols)
+
+
 def test_refute_requires_consistent_matching():
     # recolor-all-to-5 task: shapes/positions preserved, all colors -> 5
     def to5(g):

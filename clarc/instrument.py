@@ -41,6 +41,11 @@ class IterRecord:
     class_pruned: int = 0            # skeletons blocked by the learned clause (depth-bounded)
     solver_ms: float = 0.0
     abs_weak: list[str] = field(default_factory=list)  # σ components the abstraction missed
+    # --- guided code-gen dual (G-arms) ---
+    ce: Optional[dict] = None        # structured counterexample payload {invariant, viols:[...]}
+                                     # fed back this iter (None if no dual refuted the candidate)
+    produced: Optional[list] = None  # candidate's per-train-example output grids (list|None each),
+                                     # so CE actionability/repair can be recomputed offline
 
 
 @dataclass

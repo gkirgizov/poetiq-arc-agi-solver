@@ -17,7 +17,7 @@ only help. Strictly-≥-A0 by construction.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Protocol, runtime_checkable
 
 import numpy as np
@@ -28,10 +28,12 @@ Pair = tuple[np.ndarray, np.ndarray]
 @dataclass
 class Counterexample:
     invariant: str          # which induced invariant the candidate violated
-    detail: str             # specifics: which example/object/value (for repair)
+    detail: str = ""        # specifics: which example/object/value (for repair)
+    violations: list = field(default_factory=list)   # structured TermViolation payload
+                            # (object dual's witness-decoded CE; empty for σ / vague CE)
 
     def render(self) -> str:
-        return f"{self.invariant} — {self.detail}"
+        return f"{self.invariant} — {self.detail}" if self.detail else self.invariant
 
 
 @runtime_checkable

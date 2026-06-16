@@ -13,6 +13,7 @@ Arms (run.py): G0 = no duals (== A0, control) ; G1 = ObjectDual ; G2 = ObjectDua
 
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
 from typing import Optional
 
 import numpy as np
@@ -30,6 +31,7 @@ from arc_agi.types import ARCAGIResult, ARCAGISolution, RunResult
 
 from clarc.analyze import parse_grid
 from clarc.dual.base import Dual
+from clarc.instrument import IterRecord, RunLog
 from clarc.types import ClarcConfig, Generator
 
 
@@ -37,10 +39,34 @@ def make_duals(arm: str) -> list[Dual]:
     from clarc.dual.object_dual import ObjectDual
     from clarc.dual.sigma_dual import SigmaDual
     if arm == "G1":
-        return [ObjectDual()]
+        return [ObjectDual()]                                    # ungated, vague CE (control)
     if arm == "G2":
-        return [ObjectDual(), SigmaDual()]
+        return [ObjectDual(), SigmaDual()]                       # + σ (control)
+    if arm == "G3":                                              # confidence-gated + strong CE
+        return [ObjectDual(gate=True, strong_ce=True, soft_prompt=True)]
+    if arm == "G4":
+        return [ObjectDual(gate=True, strong_ce=True, soft_prompt=True), SigmaDual()]
     return []   # G0 == A0
+
+
+def _injected_names(duals: list[Dual]) -> list[str]:
+    """Names of the invariants each dual actually injected into the prompt (so the
+    per-iteration record knows what was `active`). Defensive: duals need not expose
+    it. In G3+ this returns only the HARD-tier (injected) contract names."""
+    names: list[str] = []
+    for d in duals:
+        f = getattr(d, "active_names", None)
+        if callable(f):
+            names += list(f())
+    return names
+
+
+def _ce_payload(cxs: list) -> dict:
+    """Serialize the aggregated Counterexamples (incl. structured `violations`) for the log."""
+    viols = [v for cx in cxs for v in (getattr(cx, "violations", None) or [])]
+    return {"invariant": "+".join(cx.invariant for cx in cxs),
+            "detail": " | ".join(cx.render() for cx in cxs),
+            "viols": [asdict(v) if is_dataclass(v) else v for v in viols]}
 
 
 async def guided_solve(
@@ -62,22 +88,23 @@ async def guided_solve(
         d.extract(pairs)
     constraints = "\n\n".join(b for d in duals if (b := d.prompt_block()).strip())
 
+    runlog = RunLog(task_id=cfg.problem_id, arm=arm, seed=cfg.seed)
+    active_names = _injected_names(duals)
+
     solutions: list[ARCAGISolution] = []
     best_score, best_result = -1.0, None
     last_train: list[RunResult] = [RunResult(success=False, output="", soft_score=0.0,
                                              error="no iterations", code="")]
     last_test: Optional[list[RunResult]] = None
     total_cost = total_ptok = total_ctok = 0
-    n_gen_fail = n_cx = 0
+    n_cx = 0
 
-    def finalize(result, solved, it):
+    def finalize(result):
         result["cost_usd"] = total_cost          # type: ignore[typeddict-unknown-key]
-        result["clarc_log"] = {                  # type: ignore[typeddict-unknown-key]
-            "task_id": cfg.problem_id, "arm": arm, "solved": solved,
-            "iterations_to_solve": it, "n_gen_failures": n_gen_fail,
-            "n_counterexamples": n_cx, "has_constraints": bool(constraints),
-            "n_duals": len(duals), "total_cost_usd": round(total_cost, 4),
-        }
+        log = runlog.to_dict()
+        log.update({"has_constraints": bool(constraints), "n_duals": len(duals),
+                    "n_counterexamples": n_cx})
+        result["clarc_log"] = log                # type: ignore[typeddict-unknown-key]
         return result
 
     for it in range(cfg.max_iterations):
@@ -99,31 +126,48 @@ async def guided_solve(
         total_ptok += g.prompt_tokens
         total_ctok += g.completion_tokens
         if g.code is None:
-            n_gen_fail += 1
+            runlog.add(IterRecord(iteration=it + 1, stage="gen_error", error=g.error,
+                                  cost_usd=g.cost_usd, prompt_tokens=g.prompt_tokens,
+                                  completion_tokens=g.completion_tokens, active=active_names))
             continue
 
         train_res, test_res = await _eval_on_train_and_test(
             g.code, train_in, train_out, test_in, timeout_s=cfg.timeout_sandbox_s)
         last_train, last_test = train_res, test_res
+        cand_out = [parse_grid(r) for r in train_res]
+        produced = [None if go is None else go.tolist() for go in cand_out]
 
         if all(r["success"] for r in train_res):
+            runlog.solved = True
+            runlog.iterations_to_solve = it + 1
+            runlog.add(IterRecord(iteration=it + 1, stage="solved", soft_score=1.0,
+                                  cost_usd=g.cost_usd, prompt_tokens=g.prompt_tokens,
+                                  completion_tokens=g.completion_tokens,
+                                  active=active_names, produced=produced))
             return finalize(ARCAGIResult(train_results=train_res, results=test_res,
                                          iteration=it + 1, prompt_tokens=total_ptok,
-                                         completion_tokens=total_ctok), True, it + 1)
+                                         completion_tokens=total_ctok))
 
-        # counterexample-guided feedback: prepend the first invariant the candidate
-        # violates so the next attempt repairs it specifically.
-        cand_out = [parse_grid(r) for r in train_res]
-        cx = None
+        # counterexample-guided feedback: aggregate EVERY dual's witness (object-structure
+        # CE above σ-invariant CE) so the next attempt repairs all of them, not just the first.
+        cxs = []
         for d in duals:
-            cx = d.refute(list(zip([np.asarray(x) for x in train_in], cand_out)))
-            if cx:
-                break
+            cx_d = d.refute(list(zip([np.asarray(x) for x in train_in], cand_out)))
+            if cx_d is not None:
+                cxs.append(cx_d)
         feedback, score = _build_feedback(train_res, train_in, train_out)
-        if cx is not None:
+        ce = None
+        if cxs:
             n_cx += 1
-            feedback = ("STRUCTURE VIOLATION (fix this first): " + cx.render()
-                        + "\n\n" + feedback)
+            ce = _ce_payload(cxs)
+            ce_text = "\n".join(cx.render() for cx in cxs)
+            feedback = "STRUCTURE VIOLATION (fix this first): " + ce_text + "\n\n" + feedback
+        runlog.add(IterRecord(
+            iteration=it + 1, stage=("structural" if cxs else "semantic"),
+            conflict_type=("structural" if cxs else "semantic"), soft_score=score,
+            violated=[cx.invariant for cx in cxs], ce=ce, produced=produced,
+            cost_usd=g.cost_usd, prompt_tokens=g.prompt_tokens,
+            completion_tokens=g.completion_tokens, active=active_names))
         solutions.append(ARCAGISolution(code=g.code, feedback=feedback, score=score))
         if score >= best_score:
             best_score = score
@@ -132,10 +176,10 @@ async def guided_solve(
                                        completion_tokens=total_ctok)
 
     if cfg.return_best_result and best_result is not None:
-        return finalize(best_result, False, None)
+        return finalize(best_result)
     if last_test is None:
         last_test = [RunResult(success=False, output="", soft_score=0.0,
                                error="no valid solutions", code="")]
     return finalize(ARCAGIResult(train_results=last_train, results=last_test,
                                  iteration=cfg.max_iterations, prompt_tokens=total_ptok,
-                                 completion_tokens=total_ctok), False, None)
+                                 completion_tokens=total_ctok))
