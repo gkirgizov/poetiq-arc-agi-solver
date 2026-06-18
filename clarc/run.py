@@ -51,6 +51,10 @@ ARMS = {
                induce_prims=True),                               # primitives when the library is insufficient
     "E1": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # + DYNAMIC OBJECTS: induce rules over
                induce_prims=True, dynamic_objects=True),         # task-chosen segmentation (recolor/move/drop)
+    "E2": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # + SYNTH: the LLM generates from the
+               induce_prims=True, synth_seed=True),              # clause-pruned FEASIBLE subspace (closes criterion 4)
+    "DS": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # ablation: synth WITHOUT induction
+               synth_seed=True),                                 # (isolates the synth contribution)
     # --- GUIDED code-gen (the goal): poetiq A0 + the logical dual as a GUIDE ---
     "G0": dict(),   # == A0 control (no duals), routed through clarc.solver.guided_solve
     "G1": dict(),   # + object-correspondence dual (ungated constraints + vague CE) — control

@@ -46,6 +46,21 @@ from clarc.spec import extract_spec, loo_trusted
 from clarc.store import LearnedStore
 from clarc.types import ClarcConfig, Generator, LearnedContract
 
+
+def _blocked_from_clauses(clause_store):
+    """(blocked_anywhere, blocked_at) from the learned-clause lattice, so SYNTH
+    enumerates ONLY from the un-pruned subspace — the piece that closes CEGIS
+    criterion 4 (the generator draws from the clause-pruned feasible space)."""
+    ba: set[str] = set()
+    bat: dict[int, set[str]] = {}
+    if clause_store is not None:
+        for c in clause_store.clauses:
+            if c.kind == "anywhere":
+                ba.add(c.prim)
+            elif c.kind == "at_pos" and c.pos is not None:
+                bat.setdefault(c.pos, set()).add(c.prim)
+    return ba, bat
+
 # Terse single-attempt prompt: curbs the CLI's tendency to let strong models
 # deliberate for many minutes on hard puzzles. Uses the same $$problem$$ slot.
 LEAN_SOLVER_PROMPT = '''Solve this Abstract Reasoning (ARC) puzzle by writing Python code.
@@ -224,6 +239,9 @@ async def solve_task(
         result["clarc_log"] = log                    # type: ignore[typeddict-unknown-key]
         return result
 
+    synth_pipes: list = []          # E2: current SYNTH-feasible, clause-pruned skeletons
+    synth_nclauses = -1             # forces an initial SYNTH on iteration 0
+
     for it in range(cfg.max_iterations):
         # ---- build prompt ----
         example = _make_example(train_in, train_out, test_in)
@@ -243,6 +261,39 @@ async def solve_task(
             block = clause_store.render_for_prompt(cfg.max_clauses)
             if block:
                 message += "\n\n" + block
+
+        # SYNTH (E2): enumerate skeletons from the clause-pruned FEASIBLE subspace
+        # (closes criterion 4 — generation is drawn from the pruned space). A skeleton
+        # that concretely reproduces train is a VERIFIED solve (no LLM needed); the rest
+        # seed the prompt. Re-synth only when the clause lattice has strengthened.
+        if cfg.synth_seed and task_smt is not None:
+            nc = len(clause_store.clauses) if clause_store is not None else 0
+            if nc != synth_nclauses:
+                synth_nclauses = nc
+                ba, bat = _blocked_from_clauses(clause_store)
+                synth_pipes = task_smt.synth_models(cfg.dsl_depth_max, max_models=cfg.synth_k,
+                                                    blocked_anywhere=ba, blocked_at=bat)
+                for sp in synth_pipes:
+                    sp_text = sp.pretty()
+                    if sp_text in seen_pipelines:
+                        continue
+                    seen_pipelines.add(sp_text)
+                    s_tr, s_te = await _eval_on_train_and_test(
+                        compile_pipeline(sp, dsl_registry), train_in, train_out, test_in,
+                        timeout_s=cfg.timeout_sandbox_s)
+                    if all(r["success"] for r in s_tr):
+                        runlog.solved = True
+                        runlog.iterations_to_solve = it + 1
+                        runlog.add(IterRecord(iteration=it + 1, stage="synth", dsl_text=sp_text,
+                                              executed=True, synth_seeded=True, soft_score=1.0))
+                        return finalize(ARCAGIResult(
+                            train_results=s_tr, results=s_te, iteration=it + 1,
+                            prompt_tokens=total_ptok, completion_tokens=total_ctok))
+            if synth_pipes:
+                feas = "\n".join("  " + sp.pretty() for sp in synth_pipes[:cfg.synth_k])
+                message += ("\n\nMACHINE-VERIFIED FEASIBLE skeletons (type-correct and consistent "
+                            "with ALL training pairs in the verified abstract semantics — complete "
+                            "or adapt ONE of these):\n" + feas)
 
         # contract injection: dynamic store (fixed + discovered invariants) when
         # learning/inducing, else the static spec when only spec_inject is on.

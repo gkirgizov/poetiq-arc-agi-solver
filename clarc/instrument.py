@@ -35,6 +35,7 @@ class IterRecord:
     executed: bool = False           # sandbox actually ran this candidate
     dup_hit: bool = False            # exact duplicate of an earlier candidate
     refuted: bool = False            # pre-execution refutation (clause or z3)
+    synth_seeded: bool = False       # candidate came from / prompt seeded by SYNTH feasible set
     refutation_core: list[str] = field(default_factory=list)
     clause_fired: list[str] = field(default_factory=list)   # stored clauses that matched
     clause_learned: Optional[str] = None                    # NL of a newly learned clause
