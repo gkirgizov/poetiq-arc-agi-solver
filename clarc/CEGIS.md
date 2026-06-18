@@ -30,17 +30,33 @@ skeletons blocked **but synth-seeded = 0 (DORMANT)**. So C1–C3 were real; C4 o
    **Fix (loop.py):** a synth pipe that's feasible-but-wrong is **negative evidence** — feed its
    train-diff into the LLM memory ("ALREADY TRIED … do something DIFFERENT"), don't advertise it.
 
-## Faithfulness status (with a real LLM)
-- **C1 (typed DSL) + C4 (generate-from-pruned-space): ACTIVE** on the mini-eval (8/8 valid DSL;
-  24 synth feasible draws; 1 synth-solve).
-- **C2 (traceable refutation) + C3 (clause lattice): not exercised** on these easy tasks — the LLM
-  one-shot or duped, never producing a wrong-but-VALID candidate to refute. They ARE active in
-  general (the 117 D2 logs: 62 refutations, all traceable). → the faithful test needs a band that
-  **exercises refutation** (LLM proposes plausible-but-wrong DSL), not tasks solved on iter 1.
+## FAITHFUL TEST COMPLETE (mini-eval, 8 tasks, haiku, `output/cegis-mini`)
+**All four criteria simultaneously ACTIVE** with a real LLM — the "really tested" condition is met:
+C1 typed-DSL 83% (20/24) · C2 traceable refutation **5/5 (100%)** · C3 clause lattice (≤4/task) ·
+C4 196,520 skeletons blocked, 44 synth draws, **2 synth-solves**. Unlike the G-arm strawman, this
+is a genuine CEGIS test.
+
+**Result (honest, negative for BROAD lift):** A0 **7/8** · E2 **3/8** · portfolio **7/8**. E2 ties
+A0 only on DSL-expressible tasks (195ba7dc, 31d5ba1a) and synth-solved one structural task via an
+induced prim (009d5c81); elsewhere the **DSL-emission constraint caps coverage below A0's full
+Python**, exactly as predicted. E2 adds no portfolio lift on this band.
+
+**New failure mode — F4 at the induction level (overfit):** `0a2355a6` — E2 train-solved (acc=0 on
+test) via a synth-composed induced prim whose rule is baroque and coincidental: *"group two
+smallest objects if sizes differ by ≤5 cells, else separate; sequential colors 3,2,4,5…"*. The
+contract is fresh-batch-verified (sound) but the prim's BEHAVIOR is overfit to 2–4 examples. The
+Stage-2 guard catches no-ops, NOT over-specific coincidental prims. (Not a regression: A0 also
+fails 0a2355a6 — but it is a train-verified-but-wrong submission, so it matters for the portfolio.)
+
+## Verdict on the hypothesis
+- **Faithfulness: YES** — all four criteria active; the hypothesis is, for the first time, actually
+  tested. The machinery (typed DSL, sound 99.4% refutation, monotone clause lattice, synth from the
+  pruned space, induction) is real and works (009d5c81 closed the full loop end-to-end).
+- **Broad lift: NO (on this band)** — E2 < A0 because forcing DSL emission caps expressiveness; the
+  binding constraint is DSL/induction coverage, and induction itself overfits on hard tasks (F4).
 
 ## Next experiments (monitored)
-- Re-run E2 with the dead-end fix; confirm `0bb8deee`-style dups convert to progress.
-- A band that exercises C2/C3 (DSL-shaped but not one-shot) so all four criteria are simultaneously
-  active in one run — the actual "really tested" condition.
-- Honest caveat: E2 forces DSL emission, so coverage is capped by DSL+induction vs A0's full
-  Python. Broad lift hinges on induction coverage; measure synth_feasible/induction reach first.
+- Validate the dead-end fix (`output/cegis-fix`): do `0bb8deee`-style dups convert; any regression?
+- Coverage frontier: can induction reliably + GENERALIZABLY extend the DSL (mitigate the 0a2355a6
+  F4 overfit — e.g. an LOO/simplicity gate on induced-prim BEHAVIOR, not just its contract)?
+- Quantify E2's secondary edge where it ties A0: verified (no overfit) + fewer iters / lower cost.
