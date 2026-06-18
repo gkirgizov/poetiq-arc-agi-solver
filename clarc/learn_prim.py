@@ -285,6 +285,13 @@ async def gate_code(
     contract = derive_contract_verified(deriv, fresh)
     if not verify_contract(contract, fresh):       # belt-and-suspenders (z3)
         return None
+    # F3 anti-triviality: a primitive that never changes the abstract state on ANY
+    # sample (rich random grids + the train inputs) is a no-op — reject it rather than
+    # admit a useless building block. A real transform moves σ (a recolor changes the
+    # colour histogram, a crop changes dims), so this never rejects a genuine prim.
+    if all(si == so for si, so in deriv + fresh):
+        report["stage"] = "trivial-noop"
+        return None
     report.update(stage="admitted", descr=descr, contract=contract.render())
     return InducedPrimitive(name=name, descr=descr, code=code, contract=contract, kind=kind)
 

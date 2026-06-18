@@ -203,6 +203,7 @@ async def solve_task(
         RunResult(success=False, output="", soft_score=0.0, error="No iterations ran", code="")
     ]
     last_test: Optional[list[RunResult]] = None
+    n_synth_feas = 0                 # E2: total SYNTH-feasible skeletons drawn from the pruned space
 
     def finalize(result: ARCAGIResult) -> ARCAGIResult:
         runlog.learned = [lc.descr for lc in (store.learned if store else [])]
@@ -236,6 +237,8 @@ async def solve_task(
                  "contract": ind.contract.render()} for ind in induced_prims
             ]
             log["n_induced"] = len(induced_prims)
+        if cfg.synth_seed:
+            log["n_synth_feasible"] = n_synth_feas   # criterion-4 activity (pruned-space draws)
         result["clarc_log"] = log                    # type: ignore[typeddict-unknown-key]
         return result
 
@@ -273,6 +276,7 @@ async def solve_task(
                 ba, bat = _blocked_from_clauses(clause_store)
                 synth_pipes = task_smt.synth_models(cfg.dsl_depth_max, max_models=cfg.synth_k,
                                                     blocked_anywhere=ba, blocked_at=bat)
+                n_synth_feas += len(synth_pipes)
                 for sp in synth_pipes:
                     sp_text = sp.pretty()
                     if sp_text in seen_pipelines:

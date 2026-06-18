@@ -56,7 +56,7 @@ def audit(out_dir: str, arms: list[str]) -> dict:
 
     cand = valid = 0
     refuted = traceable = 0
-    pruned_total = synth_seeded = 0
+    pruned_total = synth_seeded = synth_feasible = 0
     clause_tasks = []        # n_clauses per task (lattice size)
     reuse_total = 0
     induced = []             # (name, relation Counter)
@@ -69,6 +69,7 @@ def audit(out_dir: str, arms: list[str]) -> dict:
         solved[arm] += int(bool(log.get("solved")))
         clause_tasks.append((arm, log.get("n_clauses", 0)))
         reuse_total += log.get("clause_reuse", 0)
+        synth_feasible += log.get("n_synth_feasible", 0)
         for rec in log.get("records", []):
             if rec.get("dsl_text") is not None:
                 cand += 1
@@ -88,6 +89,7 @@ def audit(out_dir: str, arms: list[str]) -> dict:
             "C1_dsl": (valid, cand), "C2_trace": (traceable, refuted),
             "C3_clauses": clause_tasks, "C3_reuse": reuse_total,
             "C4_pruned": pruned_total, "C4_synth_seeded": synth_seeded,
+            "C4_synth_feasible": synth_feasible,
             "induced": induced, "solved": dict(solved), "ntask": dict(ntask)}
 
 
@@ -101,9 +103,10 @@ def _print(r: dict) -> None:
     sizes = [n for _, n in r["C3_clauses"]]
     print(f"C3 strengthening lattice: clauses/task max={max(sizes or [0])} "
           f"mean={sum(sizes)/max(1,len(sizes)):.1f}; clause reuse total={r['C3_reuse']}")
+    sf = r.get("C4_synth_feasible", 0)
     print(f"C4 subspace pruning     : Σ skeletons blocked={r['C4_pruned']:,}; "
-          f"SYNTH-seeded candidates={r['C4_synth_seeded']}  "
-          f"{'<-- DORMANT (criterion 4 only PARTIAL)' if not r['C4_synth_seeded'] else ''}")
+          f"SYNTH feasible draws={sf}, synth-solves={r['C4_synth_seeded']}  "
+          f"{'<-- DORMANT (criterion 4 only PARTIAL)' if not (sf or r['C4_synth_seeded']) else '<-- ACTIVE'}")
     print(f"solve: {r['solved']} of {r['ntask']}")
     if r["induced"]:
         print(f"\nF3 triviality probe — {len(r['induced'])} induced-prim contracts:")
@@ -113,8 +116,11 @@ def _print(r: dict) -> None:
             print(f"  {name}: {dict(rel)}  -> {100*rel.get('eq',0)//tot}% preservation(eq), "
                   f"{transforming} transforming(const/mul)"
                   f"{'  [TRIVIAL-leaning]' if transforming <= 1 else ''}")
-    print("\nverdict:", "criteria 1-3 active; criterion 4 BLOCKS but generator not synth-pruned"
-          if not r["C4_synth_seeded"] else "all four criteria active")
+    v, c = r["C1_dsl"]
+    c4_active = bool(r.get("C4_synth_feasible", 0) or r["C4_synth_seeded"])
+    print(f"\nverdict: criterion 4 (generate-from-pruned-space) = "
+          f"{'ACTIVE' if c4_active else 'DORMANT'}"
+          f"{'  — C1-C3 are 0 because the generator was a STUB; rerun with an LLM' if v == 0 else ''}")
 
 
 def main() -> None:
