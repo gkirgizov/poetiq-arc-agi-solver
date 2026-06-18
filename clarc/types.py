@@ -83,6 +83,9 @@ class ClarcConfig:
     improving_order: bool = True
     # --- sandbox ---
     timeout_sandbox_s: float = 5.0
+    # --- verified selection (arm G5): keep sampling past the first train-pass and submit
+    # the train-passer whose TEST output respects the LOO-trusted train invariants ---
+    vselect_k: int = 3                 # number of train-passing candidates to collect before selecting
     # --- contract ingredient flags (Phases 1-2; OFF for A0) ---
     spec_inject: bool = False
     clause_learn: bool = False

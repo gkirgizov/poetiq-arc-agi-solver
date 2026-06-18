@@ -57,6 +57,8 @@ ARMS = {
     "G2": dict(),   # + object + sigma duals — control
     "G3": dict(),   # + confidence-GATED object dual + witness-decoding (strong) CE + soft phrasing
     "G4": dict(),   # G3 + sigma
+    "G5": dict(),   # VERIFIED SELECTION: no prompt guidance; keep sampling past first train-pass
+                    # and submit the train-passer whose TEST output respects LOO-trusted invariants
 }
 
 
