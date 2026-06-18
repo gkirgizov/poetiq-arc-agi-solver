@@ -96,9 +96,51 @@ the structure — and for a 34/40 generator that intersection is nearly empty on
 3. **Weaker generator / harder benchmark** (bounded-sonnet on ARC-2) to widen the
    structural-failure band — the only regime with real headroom.
 
+## Lever-B RESULT (2026-06-16, `output/leverb-arc2` + `output/leverb-eval`) — fires, doesn't guide
+
+Ran A0/haiku over 36 grid-capped ARC-2 eval tasks (A0 solved **0/36** — max headroom).
+`ce_replay`: a **sound, generalizing** envelope CE (`nonbg_count_preserved`,
+`color_hist_preserved`, `bg_preserved`, object-correspondence) would fire on **33/80 = 41%**
+of wrong iterations — vs 2% on the easy devset. So the CE-firing problem is a *test-set*
+problem: on structurally-hard tasks the generator DOES make refutable envelope errors.
+
+Pinned the 17 high-opportunity tasks and ran **G0 / G1 / G3, iters 6** (haiku):
+
+| arm | test-correct | train-solved | med iters | CE fired | CE actionability | score after CE |
+|---|---|---|---|---|---|---|
+| G0 (=A0) | **2**/17 | 3 | 2.0 | 0 | — | — |
+| G1 (dual, vague CE) | **2**/17 | 3 | 2.0 | **33** | — | +14 / −10 |
+| G3 (gated, strong CE) | **1**/17 | 3 | 4.0 | 15 | **1/24 ≈ 4%** | +4 / −7 |
+
+**Verdict: the CE fires abundantly (33×) but does NOT guide.** G1 (33 CEs) solves the *same*
+2 tasks as G0 (0 CEs), same median iterations; G3 is strictly worse (1 solve, 4.0 iters, and
+its CE worsens the next candidate's score more often than it helps). The flagged train
+example is repaired ~4% of the time. Knowing "your non-background count / colour histogram is
+wrong" tells the generator it failed on a dimension it already knows it's failing — it does
+**not** convey the *content* fix. A sound envelope counterexample is not an actionable one.
+
+## CONCLUSION — both levers exhausted; a clean negative result
+
+The SMT/invariant counterexample channel does not improve a code-gen ARC solver in any tested
+regime, and the reasons are now fully characterized:
+- **Strong generator / easy tasks:** failures are *content* errors; envelope verifiers are
+  blind to them → CE inert (2% fire).
+- **Weak generator / hard tasks:** failures *are* envelope errors → CE fires soundly (41%),
+  but the envelope fact isn't *actionable* → no solve/iteration lift, ~4% repair, and the
+  gated strong-CE arm (G3) is net-harmful.
+- **Content CEs** (the only actionable kind) are underdetermined by 3–4 examples — they fire
+  (77%) but are coincidental and survive LOO, so refuting overfits.
+
+There is no regime where the dual's counterexamples both *fire* and *guide*: the actionable
+contracts aren't justified by the examples, and the justified contracts aren't actionable.
+This is ARC's few-shot underdetermination reappearing inside the verifier. The portfolio
+(run A0 + dual arms, submit the union of train-verified solves) remains ≥ A0 by construction
+— that is the only place the dual is non-negative, and it is a packaging trick, not guidance.
+
 ## Honest framing
-The likely terminus: *"the SMT/invariant CE is an envelope-pruner; it cannot guide a strong
-generator's content errors, because the content contracts that would are underdetermined by
-3–4 examples — the very difficulty of ARC."* A valid, well-characterized negative result,
-reached for **$0** via `ce_replay.py` + `conditional_probe.py` instead of more
-noise-dominated paid passes. Lever B is the one remaining place a positive result could hide.
+Delivered: a rigorous, well-instrumented **negative result** about neurosymbolic CE-guidance
+for code-gen ARC, reached with two modest paid passes + a suite of $0 probes
+(`ce_replay.py`, `conditional_probe.py`, `dual_oracle.py`). The mechanism is sound and
+correct; the approach does not lift solving. Recommended stance: keep the dual only as the
+**portfolio floor** (no regression vs A0) and the $0 harnesses, and stop investing in the CE
+channel for this generator class.
