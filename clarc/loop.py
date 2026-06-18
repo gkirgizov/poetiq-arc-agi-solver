@@ -293,11 +293,15 @@ async def solve_task(
                         return finalize(ARCAGIResult(
                             train_results=s_tr, results=s_te, iteration=it + 1,
                             prompt_tokens=total_ptok, completion_tokens=total_ctok))
-            if synth_pipes:
-                feas = "\n".join("  " + sp.pretty() for sp in synth_pipes[:cfg.synth_k])
-                message += ("\n\nMACHINE-VERIFIED FEASIBLE skeletons (type-correct and consistent "
-                            "with ALL training pairs in the verified abstract semantics — complete "
-                            "or adapt ONE of these):\n" + feas)
+                    # Abstractly-feasible but concretely WRONG: this is NEGATIVE evidence, not a
+                    # suggestion. Feed its train-diff into the LLM's memory so it learns what the
+                    # pruned-space exploration already ruled out — and is never lured to re-propose
+                    # it (the dead-end `dup` loop observed on 0bb8deee).
+                    s_fb, s_sc = _build_feedback(s_tr, train_in, train_out)
+                    solutions.append(ARCAGISolution(
+                        code=sp_text, score=s_sc,
+                        feedback="ALREADY TRIED (machine-synthesized, executed, does NOT fit) — "
+                                 "do something DIFFERENT:\n" + s_fb))
 
         # contract injection: dynamic store (fixed + discovered invariants) when
         # learning/inducing, else the static spec when only spec_inject is on.
