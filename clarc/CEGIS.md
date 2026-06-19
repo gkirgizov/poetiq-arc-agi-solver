@@ -48,6 +48,22 @@ contract is fresh-batch-verified (sound) but the prim's BEHAVIOR is overfit to 2
 Stage-2 guard catches no-ops, NOT over-specific coincidental prims. (Not a regression: A0 also
 fails 0a2355a6 — but it is a train-verified-but-wrong submission, so it matters for the portfolio.)
 
+## $0 coverage probe (`synth_coverage.py`, z3 + concrete, NO LLM — reliable)
+Pure-DSL/synth coverage = **0/40** devset (depth 4, top-16 skeletons; structural 0/20, logic
+0/20). Shape: **40/40 feasible-but-unsolved, 0 infeasible** — the σ-abstraction is too coarse to
+declare ANY task infeasible, so synth enumerates abstractly-feasible-but-concretely-wrong
+skeletons and solves none. (True DSL ceiling is ~2/40 per HANDOFF depth-2; top-16 missed those —
+either way negligible.) ⇒ **the synthesizer adds ~0 solving power; every E2 solve is the LLM's**
+(DSL emission on the 2 expressible tasks + induced prims). The CEGIS machinery is faithful but
+does not lift solving on this DSL; the LLM is the engine, and DSL emission caps it below A0's
+Python. Corollary: `synth_feasible` is NOT a usable "DSL-can't-express ⇒ induce" trigger (it's
+always feasible) — the abstraction is too weak to prune.
+
+Infra note (reliability): the paid haiku evals stalled at **0% CPU** — transient network
+degradation hanging an import/CLI subprocess, NOT the code. The $0 probes (z3 + concrete, no LLM)
+are the reliable instrument; prefer them. When a paid eval is needed, actively poll
+(pgrep + cell count + %CPU-hang detection) and relaunch as TRACKED tasks — never detached `&`.
+
 ## Verdict on the hypothesis
 - **Faithfulness: YES** — all four criteria active; the hypothesis is, for the first time, actually
   tested. The machinery (typed DSL, sound 99.4% refutation, monotone clause lattice, synth from the
