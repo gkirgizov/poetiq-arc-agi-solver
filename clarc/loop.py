@@ -34,7 +34,7 @@ from arc_agi.types import ARCAGIResult, ARCAGISolution, RunResult
 from clarc.absdomain import sigma_of
 from clarc.analyze import parse_grid, render_violation_feedback
 from clarc.clauses import ClauseStore, _facts_nl
-from clarc.dsl import REGISTRY, compile_pipeline, render_catalog
+from clarc.dsl import REGISTRY, compile_pipeline, param_search, render_catalog
 from clarc.dslparse import DslError, extract_dsl_block, parse_pipeline
 from clarc.learn_prim import gate_code, induce_object_rule, induce_primitive
 from clarc.prim_library import PrimLibrary
@@ -274,9 +274,21 @@ async def solve_task(
             if nc != synth_nclauses:
                 synth_nclauses = nc
                 ba, bat = _blocked_from_clauses(clause_store)
-                synth_pipes = task_smt.synth_models(cfg.dsl_depth_max, max_models=cfg.synth_k,
-                                                    blocked_anywhere=ba, blocked_at=bat)
-                n_synth_feas += len(synth_pipes)
+                raw = task_smt.synth_models(cfg.dsl_depth_max, max_models=cfg.synth_k,
+                                            blocked_anywhere=ba, blocked_at=bat)
+                n_synth_feas += len(raw)
+                # CONCRETE param-search each unique skeleton: z3 returns the right skeleton but
+                # one arbitrary param witness, and the coarse σ-abstraction can't pin params, so
+                # the witness is usually wrong. param_search recovers the solving params cheaply.
+                synth_pipes, _seen_sk = [], set()
+                for sp in raw:
+                    skel = tuple(s.name for s in sp.steps)
+                    if skel in _seen_sk:
+                        continue
+                    _seen_sk.add(skel)
+                    synth_pipes.append(
+                        param_search(skel, pairs_np, cap=cfg.synth_param_cap,
+                                     registry=dsl_registry) or sp)
                 for sp in synth_pipes:
                     sp_text = sp.pretty()
                     if sp_text in seen_pipelines:

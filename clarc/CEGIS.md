@@ -64,6 +64,23 @@ degradation hanging an import/CLI subprocess, NOT the code. The $0 probes (z3 + 
 are the reliable instrument; prefer them. When a paid eval is needed, actively poll
 (pgrep + cell count + %CPU-hang detection) and relaunch as TRACKED tasks — never detached `&`.
 
+## LEVER FOUND: the 0/40 was a synth PARAM-WITNESS limit, not a DSL limit
+Critically interrogating the 0/40: E2 solved `195ba7dc`/`31d5ba1a` via **single depth-1 prims**
+(`split_binop_h(or,1)`, `split_binop_v(xor,6)`) — the DSL expresses them. synth_models even
+proposes the right SKELETON, but z3 returns **one arbitrary param witness** (`split_binop_h(and,1)`)
+because the σ-abstraction is too coarse to pin params (the same "40/40 feasible, 0 infeasible"
+coarseness). A trivial **concrete param-search** over the skeleton's tiny param space (≤40 combos)
+recovers `(or,1)`/`(xor,6)` and solves both — confirmed directly + unit-tested.
+→ `dsl.param_search` (skip skeletons whose param space > cap, e.g. recolor's 10^10 — the
+abstraction pins those via the histogram). Wired into the live E2/DS synth path
+(`loop.py`) AND `synth_coverage.py`: synth now param-searches each skeleton concretely before
+trusting z3's witness, so E2 can solve depth-1 tasks via pure synth (no LLM). This is the first
+mechanism that adds solving power the LLM-free symbolic loop previously lacked; next: re-measure
+full-devset pure-synth coverage with param-search, then a monitored E2 eval.
+
+(Aside — pre-existing bug surfaced: `absdomain.sigma_of` can IndexError on a degenerate
+empty-object grid during induction's random sampling; flaky, orthogonal to param-search; fix later.)
+
 ## Verdict on the hypothesis
 - **Faithfulness: YES** — all four criteria active; the hypothesis is, for the first time, actually
   tested. The machinery (typed DSL, sound 99.4% refutation, monotone clause lattice, synth from the

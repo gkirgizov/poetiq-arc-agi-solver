@@ -99,6 +99,8 @@ class ClarcConfig:
     synth_seed: bool = False       # E2: SYNTHESIZE candidates from the clause-pruned feasible
                                    # subspace — try them directly + seed the LLM prompt with them
     synth_k: int = 6               # max synth skeletons per refresh
+    synth_param_cap: int = 2000    # max concrete param combos to search per synth skeleton
+                                   # (z3's single param witness is usually wrong — search recovers it)
     dsl_depth_max: int = 4         # bound for SYNTH/position-lift queries
     z3_timeout_ms: int = 2000      # solver cap; timeout degrades to "not refuted"
     max_clauses: int = 16          # prompt block cap (solver always sees all)

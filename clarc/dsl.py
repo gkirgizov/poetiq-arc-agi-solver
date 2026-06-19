@@ -26,6 +26,7 @@ monotone (sym_in => sym_out).
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from dataclasses import dataclass, field
@@ -743,6 +744,38 @@ def apply_steps(steps: list[dict], grid: np.ndarray) -> np.ndarray:
     """Entry point for compiled candidates (runs inside the sandbox subprocess)."""
     p = Pipeline(tuple(Step(s["name"], dict(s["params"])) for s in steps))
     return run_pipeline(p, grid)
+
+
+def param_search(prim_names, pairs, *, cap: int = 2000, registry: Optional[dict] = None):
+    """Concretely search a SKELETON's parameter space for a train-solver, or None.
+
+    SYNTH (`smt.synth_models`) returns the right skeleton but ONE arbitrary param witness:
+    the σ-abstraction is too coarse to pin params, so z3 usually guesses wrong (e.g.
+    `split_binop_h(and,1)` when the answer is `(or,1)`). The solving prims have tiny param
+    spaces (≤40), so brute-forcing them concretely recovers the solution cheaply. Skeletons
+    whose combined param space exceeds `cap` (e.g. recolor's 10^10 colour map) are skipped —
+    the abstraction pins those via the histogram; this fixes the small-param prims it can't.
+    """
+    reg = registry if registry is not None else REGISTRY
+    per_step, total = [], 1
+    for n in prim_names:
+        prim = reg[n]
+        names = [p.name for p in prim.params]
+        combos = [dict(zip(names, vals))
+                  for vals in itertools.product(*[p.values for p in prim.params])]
+        per_step.append(combos or [{}])
+        total *= max(1, len(combos))
+        if total > cap:
+            return None
+    for choice in itertools.product(*per_step):
+        pipe = Pipeline(tuple(Step(n, params) for n, params in zip(prim_names, choice)))
+        try:
+            if all(np.array_equal(run_pipeline(pipe, np.asarray(gi), reg), np.asarray(go))
+                   for gi, go in pairs):
+                return pipe
+        except (DslRuntimeError, ValueError, IndexError, KeyError, AttributeError, TypeError):
+            continue
+    return None
 
 
 def compile_pipeline(p: Pipeline, registry: Optional[dict] = None) -> str:
