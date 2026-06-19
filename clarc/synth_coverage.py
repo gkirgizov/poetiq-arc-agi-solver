@@ -77,7 +77,7 @@ def main() -> None:
     print(f"DSL coverage probe (depth={args.depth}, models={args.models}, cap={args.cap}, NO LLM) "
           f"— resuming with {len(done)}/40 done\n", flush=True)
     strat = {tid: s for s in ("structural", "logic") for tid in d[s]}
-    for tid in d["structural"] + d["logic"]:
+    for tid in d["logic"] + d["structural"]:   # logic first — the depth-1 solvable tasks live there
         if tid in done:
             continue
         t = challenges[tid]

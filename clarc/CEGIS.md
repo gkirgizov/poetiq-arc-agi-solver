@@ -75,8 +75,15 @@ recovers `(or,1)`/`(xor,6)` and solves both — confirmed directly + unit-tested
 abstraction pins those via the histogram). Wired into the live E2/DS synth path
 (`loop.py`) AND `synth_coverage.py`: synth now param-searches each skeleton concretely before
 trusting z3's witness, so E2 can solve depth-1 tasks via pure synth (no LLM). This is the first
-mechanism that adds solving power the LLM-free symbolic loop previously lacked; next: re-measure
-full-devset pure-synth coverage with param-search, then a monitored E2 eval.
+mechanism that adds solving power the LLM-free symbolic loop previously lacked.
+
+**MEASURED LIFT (`synth_coverage.py` with param-search, resumable, depth 2 / models 6, NO LLM):
+pure-synth coverage 0/40 → 2/40, BOTH test-generalizing** — `195ba7dc` (`split_binop_h(or,1)`) and
+`31d5ba1a` (`split_binop_v(xor,6)`) are now solved AND generalized by the LLM-free symbolic loop,
+up from 0. (Structural stratum stays ~0 — those need INDUCTION, not just param-search; param-search
+fixes the depth-≤2 small-param tasks the abstraction couldn't pin.) Modest in absolute terms but the
+first NON-ZERO pure-symbolic result, and a clean sound win (verified + generalizes). depth-2/models-6
+is a lower bound; the structural ceiling is the induction frontier.
 
 (Aside — pre-existing bug surfaced: `absdomain.sigma_of` can IndexError on a degenerate
 empty-object grid during induction's random sampling; flaky, orthogonal to param-search; fix later.)
