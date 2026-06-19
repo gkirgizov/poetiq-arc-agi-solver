@@ -59,59 +59,58 @@ def main() -> None:
     ap.add_argument("--models", type=int, default=20)
     ap.add_argument("--cap", type=int, default=2000, help="max concrete param combos per skeleton")
     ap.add_argument("--data", default="2024-eval")
+    ap.add_argument("--ckpt", default=os.path.join(_HERE, "..", "output", "synth_cov.jsonl"))
     args = ap.parse_args()
     challenges, solutions = _load(args.data)
     d = devset.load()
 
-    print(f"DSL coverage probe (depth={args.depth}, models={args.models}, NO LLM) — z3 synth + "
-          f"concrete check\n")
-    rollup = {}
-    for stratum in ("structural", "logic"):
-        ids = d[stratum]
-        train_cov = []     # tasks where a synth skeleton reproduces all train pairs
-        test_gen = []      # ... and also reproduces the held-out test pair
-        feas_only = []     # synth feasible but no concrete train-solver in top-K
-        none = []
-        for tid in ids:
-            t = challenges[tid]
-            tr = [(e["input"], e["output"]) for e in t["train"]]
-            te = [(e["input"], sol) for e, sol in zip(t["test"], (solutions or {}).get(tid, []))]
-            facts = [(sigma_of(np.asarray(gi)), sigma_of(np.asarray(go))) for gi, go in tr]
-            smt = TaskSMT(facts, timeout_ms=3000)
-            t0 = time.monotonic()
-            pipes = smt.synth_models(args.depth, max_models=args.models)
-            seen, skels = set(), []
-            for p in pipes:
-                sk = tuple(s.name for s in p.steps)
-                if sk and sk not in seen:
-                    seen.add(sk); skels.append(sk)
-            solver = None
-            for sk in skels:                            # concrete param-search per skeleton
-                solver = param_search(sk, tr, cap=args.cap)
-                if solver is not None:
-                    break
-            dt = time.monotonic() - t0
-            if solver is not None:
-                gen = _solves(solver, te) if te else None
-                (test_gen if gen else train_cov).append(tid)
-                print(f"  [{stratum[:6]}] {tid}: SOLVES train via `{solver.pretty()}` "
-                      f"-> test_generalizes={gen}  ({len(pipes)} feasible, {dt:.1f}s)")
-            elif pipes:
-                feas_only.append(tid)
-            else:
-                none.append(tid)
-        rollup[stratum] = dict(train_solved=len(train_cov) + len(test_gen),
-                               test_generalized=len(test_gen),
-                               feasible_only=len(feas_only), infeasible=len(none), n=len(ids))
-    print("\n=== DSL COVERAGE (no LLM, the reliable ceiling) ===")
-    for s, r in rollup.items():
-        print(f"  {s}: train-solved {r['train_solved']}/{r['n']} "
-              f"(test-generalized {r['test_generalized']}); "
-              f"feasible-but-unsolved {r['feasible_only']}; infeasible {r['infeasible']}")
-    tot_g = sum(r["test_generalized"] for r in rollup.values())
-    tot_n = sum(r["n"] for r in rollup.values())
-    print(f"  TOTAL pure-DSL test-correct (no LLM, no induction): {tot_g}/{tot_n} "
-          f"— this is the binding constraint E2 must beat via the LLM + induction.")
+    # RESUMABLE: each task's result is appended to a JSONL checkpoint and skipped on re-run,
+    # so the idle-kills in this environment don't lose progress — relaunch to continue.
+    done = {}
+    if os.path.exists(args.ckpt):
+        for line in open(args.ckpt, encoding="utf-8"):
+            try:
+                r = json.loads(line); done[r["tid"]] = r
+            except (json.JSONDecodeError, KeyError):
+                pass
+    sink = open(args.ckpt, "a", encoding="utf-8")
+    print(f"DSL coverage probe (depth={args.depth}, models={args.models}, cap={args.cap}, NO LLM) "
+          f"— resuming with {len(done)}/40 done\n", flush=True)
+    strat = {tid: s for s in ("structural", "logic") for tid in d[s]}
+    for tid in d["structural"] + d["logic"]:
+        if tid in done:
+            continue
+        t = challenges[tid]
+        tr = [(e["input"], e["output"]) for e in t["train"]]
+        te = [(e["input"], sol) for e, sol in zip(t["test"], (solutions or {}).get(tid, []))]
+        facts = [(sigma_of(np.asarray(gi)), sigma_of(np.asarray(go))) for gi, go in tr]
+        smt = TaskSMT(facts, timeout_ms=3000)
+        t0 = time.monotonic()
+        pipes = smt.synth_models(args.depth, max_models=args.models)
+        seen, skels = set(), []
+        for p in pipes:
+            sk = tuple(s.name for s in p.steps)
+            if sk and sk not in seen:
+                seen.add(sk); skels.append(sk)
+        solver = next((s for sk in skels if (s := param_search(sk, tr, cap=args.cap))), None)
+        gen = (_solves(solver, te) if (solver is not None and te) else None)
+        rec = {"tid": tid, "stratum": strat[tid], "solved": solver is not None,
+               "generalized": bool(gen), "solver": solver.pretty() if solver else None,
+               "feasible": len(pipes), "secs": round(time.monotonic() - t0, 1)}
+        sink.write(json.dumps(rec) + "\n"); sink.flush(); done[tid] = rec
+        print(f"  [{strat[tid][:6]}] {tid}: {'SOLVES via ' + rec['solver'] if solver else 'no solver'}"
+              f" gen={gen} ({rec['feasible']} feasible, {rec['secs']}s)", flush=True)
+    sink.close()
+
+    print("\n=== DSL COVERAGE WITH PARAM-SEARCH (no LLM) ===", flush=True)
+    for s in ("structural", "logic"):
+        rs = [r for r in done.values() if r["stratum"] == s]
+        print(f"  {s}: train-solved {sum(r['solved'] for r in rs)}/{len(rs)} "
+              f"(test-generalized {sum(r['generalized'] for r in rs)})")
+    gg = sum(r["generalized"] for r in done.values())
+    ss = sum(r["solved"] for r in done.values())
+    print(f"  TOTAL: train-solved {ss}/{len(done)}, test-correct {gg}/{len(done)} "
+          f"(was 0/40 before param-search — this is the lift).", flush=True)
 
 
 if __name__ == "__main__":
