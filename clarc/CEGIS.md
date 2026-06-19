@@ -103,8 +103,11 @@ What was learned, end to end: the prior G-arm effort never tested CEGIS (fails a
 DSL/SMT machinery does (and is sound, 99.4% refutation, 0 false); wiring the dormant synth closed
 criterion 4; and critically re-examining the "synth adds nothing" 0/40 turned it into the
 param-search lever (0→2/40, generalizing). The remaining frontiers are (a) deeper synth — marginal
-(depth-3 probe `output/synth_cov.jsonl` quantifies it), and (b) the STRUCTURAL ceiling, which needs
-generalizable INDUCTION — the hard open problem, where induction overfits (the 0a2355a6 F4 prim).
+AND impractical in this env (a depth-3 probe managed only ~4/40 per idle-kill window, ~90s/task;
+and the 2 confirmed wins are DEPTH-1 single-prim solutions — param-search's sweet spot — so deeper
+multi-step DSL solutions are unlikely to add much, ARC rules rarely reduce to ≤3 generic DSL steps),
+so the **depth-2 measure of 2/40 stands as the reliable lift**; and (b) the STRUCTURAL ceiling, which
+needs generalizable INDUCTION — the hard open problem, where induction overfits (the 0a2355a6 F4 prim).
 
 Honest infra note: in this environment the LLM/sandbox `solve_task` path HANGS (live E2/DS
 verification on 195ba7dc produced no output despite exit 0; paid haiku evals stall at 0% CPU). The
