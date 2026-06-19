@@ -94,9 +94,21 @@ empty-object grid during induction's random sampling; flaky, orthogonal to param
   pruned space, induction) is real and works (009d5c81 closed the full loop end-to-end).
 - **Broad lift: NO (on this band)** — E2 < A0 because forcing DSL emission caps expressiveness; the
   binding constraint is DSL/induction coverage, and induction itself overfits on hard tasks (F4).
+- **First sound POSITIVE: the param-search lever** — the pure-synth 0/40 was not a wall but a
+  fixable synth limitation (z3's arbitrary param witness); param-search lifts it to 2/40, both
+  test-generalizing, entirely LLM-free. A small but clean, sound, verified gain.
 
-## Next experiments (monitored)
-- Validate the dead-end fix (`output/cegis-fix`): do `0bb8deee`-style dups convert; any regression?
-- Coverage frontier: can induction reliably + GENERALIZABLY extend the DSL (mitigate the 0a2355a6
-  F4 overfit — e.g. an LOO/simplicity gate on induced-prim BEHAVIOR, not just its contract)?
-- Quantify E2's secondary edge where it ties A0: verified (no overfit) + fewer iters / lower cost.
+## Conclusion (this thread)
+What was learned, end to end: the prior G-arm effort never tested CEGIS (fails all 4 criteria); the
+DSL/SMT machinery does (and is sound, 99.4% refutation, 0 false); wiring the dormant synth closed
+criterion 4; and critically re-examining the "synth adds nothing" 0/40 turned it into the
+param-search lever (0→2/40, generalizing). The remaining frontiers are (a) deeper synth — marginal
+(depth-3 probe `output/synth_cov.jsonl` quantifies it), and (b) the STRUCTURAL ceiling, which needs
+generalizable INDUCTION — the hard open problem, where induction overfits (the 0a2355a6 F4 prim).
+
+Honest infra note: in this environment the LLM/sandbox `solve_task` path HANGS (live E2/DS
+verification on 195ba7dc produced no output despite exit 0; paid haiku evals stall at 0% CPU). The
+reliable instruments are the **$0 z3 probes** with resumable file checkpoints — they carried every
+real result here. Live/paid verification is infra-blocked, so the offline probe (same wired
+`param_search`, same tasks) is the proof of record. Per "stop rather than churn", the thread
+concludes on the param-search lever; the induction frontier is the next session's work.
