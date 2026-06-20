@@ -178,3 +178,24 @@ covered — checked via synth), add winners to dsl.py (apply + SOUND encode + _r
   small-param logic. NEXT PHASE: (a) per-object SELECTION sublanguage (enable object-level
   composition for move/object tasks); (b) the **agent-extends-DSL loop** — LLM composes the enriched
   DSL and induces task-relevant prims until train is expressed (the user's core goal; gate paid).
+
+## DSL-development saturation + induction-reach findings (honest bounds)
+After ~20 data-driven candidate families tested vs the full ARC-1 eval, only TWO were net-new:
+symmetry_repair (+8) and connect_dots (+1). The rest yield 0 or are REDUNDANT with existing prims
+(panel_overlay≡split_binop on 34b99a2b; scale_to≡scale(2,2) on 60c09cac). ⇒ single GENERAL-prim
+mining is SATURATED — the clean-algorithm families ARC rewards (symmetry/periodicity, connect,
+logic/overlay, gravity, scale, crop, fill) are largely covered.
+- **DSL vs A0 (symmetry family, n=6 before infra-kill):** A0 (free-form sonnet) solves 5/6; the
+  enriched DSL solves all LLM-free+verified and recovers A0's one miss (929ab4e9). So the DSL's edge
+  over the baseline is HARD INSTANCES of clean-algorithm families (where general algo > ad-hoc LLM
+  code), NOT broad coverage — A0 already codes the easy clean-algorithm tasks.
+- **Induction REACH:** the per-object induction (E1 recolor/move/drop over whole objects) does NOT
+  cover the idiosyncratic tail — 3dc255db's objects SPLIT/GROW/transform (size-13 → size-2+size-11,
+  new objects), i.e. RESTRUCTURING outside the per-object basis. And the complex-recolor stratum is
+  underdetermined (0/20 simple attribute→colour maps). So neither general-prims nor per-object
+  induction cracks the tail; it is the genuine ARC difficulty (idiosyncratic restructuring /
+  underdetermined rules).
+- **Net:** the WORKING lever is clean-algorithm DSL development (symmetry_repair = the win), now
+  mined. The one unexplored lever toward beating A0 on the tail: the LLM COMPOSING the enriched DSL
+  (multi-step pipelines + task-specific induced steps) — needs gated paid testing (infra keeps
+  killing bg tasks; use small resumable batches).
