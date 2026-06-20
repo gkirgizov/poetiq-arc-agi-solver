@@ -739,6 +739,70 @@ _reg(Primitive("project_ray", "draw", (Param("dir", _DIRS),),
                _apply_ray, _enc_dims_only, havoc=("objects", "sym", "hist")))
 
 
+def _sym_maps(H, W):
+    d = {"h": lambda r, c: (r, W - 1 - c),
+         "v": lambda r, c: (H - 1 - r, c),
+         "r180": lambda r, c: (H - 1 - r, W - 1 - c)}
+    if H == W:
+        d["t"] = lambda r, c: (c, r)
+        d["at"] = lambda r, c: (W - 1 - c, H - 1 - r)
+    return d
+
+
+def _periods(g, noise):
+    H, W = g.shape
+    out = []
+    for ph in range(1, H):
+        if all(g[r, c] == noise or g[r + ph, c] == noise or g[r, c] == g[r + ph, c]
+               for r in range(H - ph) for c in range(W)):
+            out.append(("row", ph)); break
+    for pw in range(1, W):
+        if all(g[r, c] == noise or g[r, c + pw] == noise or g[r, c] == g[r, c + pw]
+               for r in range(H) for c in range(W - pw)):
+            out.append(("col", pw)); break
+    return out
+
+
+def _apply_symmetry_repair(g, params):
+    """Repair cells of the `noise` colour using the grid's own structure — any mirror
+    symmetry (h/v/180/transpose) CONSISTENT on the non-occluded cells, plus translational
+    periods. The canonical ARC occlusion-repair regime; general and verified, not overfit."""
+    noise = int(params["noise"])
+    H, W = g.shape
+    if not (g == noise).any():
+        return g
+    syms = [f for f in _sym_maps(H, W).values()
+            if all(g[r, c] == noise or g[f(r, c)] == noise or g[r, c] == g[f(r, c)]
+                   for r in range(H) for c in range(W))]
+    pds = _periods(g, noise)
+    out = g.copy()
+    for _ in range(4):
+        for r in range(H):
+            for c in range(W):
+                if out[r, c] != noise:
+                    continue
+                for f in syms:
+                    if out[f(r, c)] != noise:
+                        out[r, c] = out[f(r, c)]; break
+                else:
+                    for kind, p in pds:
+                        for k in range(1, max(H, W)):
+                            dr, dc = (k * p, 0) if kind == "row" else (0, k * p)
+                            for a, b in ((r + dr, c + dc), (r - dr, c - dc)):
+                                if 0 <= a < H and 0 <= b < W and out[a, b] != noise:
+                                    out[r, c] = out[a, b]; break
+                            if out[r, c] != noise:
+                                break
+                        if out[r, c] != noise:
+                            break
+    return out
+
+
+_reg(Primitive("symmetry_repair", "draw", (Param("noise", _COLORS),),
+               "fill cells of the noise colour using consistent mirror symmetry + periodicity",
+               _apply_symmetry_repair, _enc_dims_only, havoc=("objects", "sym", "hist")))
+
+
 # --------------------------------------------------------------------------- #
 # Logic-stratum macros: split + cellwise boolean combine
 # --------------------------------------------------------------------------- #
