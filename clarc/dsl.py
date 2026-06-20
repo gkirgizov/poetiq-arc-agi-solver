@@ -803,6 +803,49 @@ _reg(Primitive("symmetry_repair", "draw", (Param("noise", _COLORS),),
                _apply_symmetry_repair, _enc_dims_only, havoc=("objects", "sym", "hist")))
 
 
+_BOOLOPS = ("and", "or", "xor")
+
+
+def _apply_panel_overlay(g, params):
+    """Split the grid on uniform non-bg separator lines into equal panels and overlay their
+    non-bg masks with a boolean op, painting the result in `outc` (the multi-panel logic regime,
+    generalising split_binop to explicit separators)."""
+    op, outc = params["op"], int(params["outc"])
+    b = bg_of(g)
+    H, W = g.shape
+    seps = [c for c in range(W) if len(set(g[:, c].tolist())) == 1 and g[0, c] != b]
+    axis = "col"
+    if not seps:
+        seps = [r for r in range(H) if len(set(g[r, :].tolist())) == 1 and g[r, 0] != b]
+        axis = "row"
+    if not seps:
+        raise DslRuntimeError("panel_overlay: no separator line")
+    parts, prev = [], 0
+    for s in seps + [W if axis == "col" else H]:
+        if s > prev:
+            parts.append(g[:, prev:s] if axis == "col" else g[prev:s, :])
+        prev = s + 1
+    parts = [p for p in parts if p.size > 0]
+    if len(parts) < 2 or any(p.shape != parts[0].shape for p in parts):
+        raise DslRuntimeError("panel_overlay: unequal panels")
+    m = parts[0] != b
+    for p in parts[1:]:
+        mm = p != b
+        m = (m & mm) if op == "and" else (m | mm) if op == "or" else (m ^ mm)
+    out = np.full(parts[0].shape, b)
+    out[m] = outc
+    return out
+
+
+def _enc_panel_overlay(si, so, P):
+    return [so.h <= si.h, so.w <= si.w]
+
+
+_reg(Primitive("panel_overlay", "logic", (Param("op", _BOOLOPS), Param("outc", _COLORS)),
+               "overlay separator-delimited panels with a boolean op, painted in outc",
+               _apply_panel_overlay, _enc_panel_overlay, havoc=("hist", "objects", "bbox", "sym")))
+
+
 # --------------------------------------------------------------------------- #
 # Logic-stratum macros: split + cellwise boolean combine
 # --------------------------------------------------------------------------- #
