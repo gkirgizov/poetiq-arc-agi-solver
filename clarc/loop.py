@@ -173,10 +173,14 @@ async def solve_task(
         # new rule), up to max attempts, stop after the first admitted prim. E1
         # (dynamic_objects) induces a rule over DYNAMICALLY-segmented objects
         # (recolor/move/drop); E0 uses the fixed-4-conn recolor/select kinds.
+        # F4 generalization gate: induce from n-1 pairs (hold out the last) when enabled,
+        # so the loop's downstream all-train verification rejects a prim that overfits the
+        # n-1 but fails the held-out pair — the baroque-coincidental-rule failure (0a2355a6).
+        ind_pairs = (pairs_np[:-1] if (cfg.induce_holdout and len(pairs_np) >= 3) else pairs_np)
         for a in range(cfg.max_induced_prims):
             rep: dict = {}
             inducer = induce_object_rule if cfg.dynamic_objects else induce_primitive
-            ind = await inducer(generator, pairs_np,
+            ind = await inducer(generator, ind_pairs,
                                 name=f"ind_{cfg.problem_id or 'x'}_{a}",
                                 seed=cfg.seed + a, report=rep)
             total_cost += rep.get("cost_usd", 0.0)

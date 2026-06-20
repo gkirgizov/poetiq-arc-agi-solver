@@ -106,6 +106,9 @@ class ClarcConfig:
     max_clauses: int = 16          # prompt block cap (solver always sees all)
     # --- self-extending DSL (M6; arm E0) ---
     induce_prims: bool = False     # induce new primitives when the library is insufficient
+    induce_holdout: bool = False   # F4 generalization gate: induce the prim from n-1 train pairs
+                                   # (hold out 1) so the loop's all-train check rejects overfit prims
+                                   # that fit the n-1 but not the held-out pair. Needs >=3 train pairs.
     induce_on_unsat: bool = True   # trigger induction when the SMT oracle says UNSAT@depth
     max_induced_prims: int = 3     # cap induced prims per task
     prim_use_library: bool = True  # load/persist the cross-task induced-primitive library

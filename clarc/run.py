@@ -55,6 +55,9 @@ ARMS = {
                induce_prims=True, synth_seed=True),              # clause-pruned FEASIBLE subspace (closes criterion 4)
     "DS": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # ablation: synth WITHOUT induction
                synth_seed=True),                                 # (isolates the synth contribution)
+    "E3": dict(dsl_required=True, z3_refute=True, z3_learn=True,  # E2 + F4 generalization gate:
+               induce_prims=True, synth_seed=True,               # induce from n-1, hold out 1 ->
+               induce_holdout=True),                             # all-train check rejects overfit prims
     # --- GUIDED code-gen (the goal): poetiq A0 + the logical dual as a GUIDE ---
     "G0": dict(),   # == A0 control (no duals), routed through clarc.solver.guided_solve
     "G1": dict(),   # + object-correspondence dual (ungated constraints + vague CE) — control
