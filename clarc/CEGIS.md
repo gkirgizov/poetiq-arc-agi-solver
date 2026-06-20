@@ -142,3 +142,18 @@ reliable instruments are the **$0 z3 probes** with resumable file checkpoints �
 real result here. Live/paid verification is infra-blocked, so the offline probe (same wired
 `param_search`, same tasks) is the proof of record. Per "stop rather than churn", the thread
 concludes on the param-search lever; the induction frontier is the next session's work.
+
+### Portfolio-reliability framing — ALSO no headroom (the competence OVERLAPS A0, doesn't complement)
+The CEGIS arm's real value proposition isn't raw coverage but VERIFICATION (when it solves, it's
+certain). Portfolio test: does the verified (LLM-free) arm RECOVER any task A0 gets wrong? **No.**
+A0 solves BOTH param-search verified solves (195ba7dc, 31d5ba1a) at acc=1.0; on cegis-mini E2's
+solves ⊆ A0's (E2 3/8 ⊆ A0 7/8). The symbolic arm is strong exactly where A0 is strong (easy/
+DSL-expressible/depth-1) and weak exactly where A0 is weak (structural) — its competence OVERLAPS
+A0 rather than COMPLEMENTING it, so there is no portfolio recovery. A portfolio win would need a
+symbolic solve of a task A0 FAILS, which requires cracking the structural stratum — the same
+fundamental wall. ⇒ Every tractable mechanism lever is now measured-exhausted: param-search wins
+LOGIC (2/40, but ⊆ A0); E3 holdout gate makes induction SOUND (no overfit) but adds no coverage;
+structural attribute-recolor is futile (0/20); portfolio-recovery is empty (symbolic ⊆ A0). The
+honest deliverable: the param-search lever is a sound, self-contained positive (LLM-free symbolic
+solving where the abstraction previously failed to pin params); broad lift over A0 needs the
+structural stratum, which is the fundamental ARC difficulty, not a fixable mechanism gap.
