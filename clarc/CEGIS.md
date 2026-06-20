@@ -199,3 +199,13 @@ logic/overlay, gravity, scale, crop, fill) are largely covered.
   mined. The one unexplored lever toward beating A0 on the tail: the LLM COMPOSING the enriched DSL
   (multi-step pipelines + task-specific induced steps) — needs gated paid testing (infra keeps
   killing bg tasks; use small resumable batches).
+
+## Composition headroom — also empty (3rd independent angle)
+2-prim composition scan over the enriched DSL (curated 20 grid prims, param-searched) on an 18-task
+focused band (tippable + symmetry): **0 net-new** — no 2-prim pipeline solves a band task that no
+single prim solves. So the tippable tail is outside the DSL's reach from THREE independent angles:
+single-prim (saturated), 2-prim composition (0), per-object induction (can't restructure). The tail
+is genuinely idiosyncratic (the ARC difficulty); expressing it needs near-free-form restructuring,
+which conflicts with the "inside the DSL, not free-form python" constraint. DURABLE WINS of the
+DSL-development phase: symmetry_repair (+8, LLM-free via synth, recovers A0's hard instances like
+929ab4e9) + connect_dots (+1), both generalizing + sound. That is the lever; it is now mined.
