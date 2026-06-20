@@ -88,6 +88,20 @@ is a lower bound; the structural ceiling is the induction frontier.
 (Aside — pre-existing bug surfaced: `absdomain.sigma_of` can IndexError on a degenerate
 empty-object grid during induction's random sampling; flaky, orthogonal to param-search; fix later.)
 
+## FRONTIER: generalizable induction — the holdout gate (arm E3)
+The structural ceiling needs induction, which OVERFITS (0a2355a6: a baroque coincidental prim).
+Lever (commit b34b9da): induce the prim from **n-1** train pairs (hold out 1); the loop's existing
+all-train verification then rejects a prim that fits the n-1 but not the held-out. **Measured
+(E2 vs E3, haiku, 4 structural tasks):** OVERFIT (solved & test-wrong) **E2=1 → E3=0** — E3 rejected
+0a2355a6's overfit prim (E2 submitted it: solved/acc=0; E3 solved=False); TEST-CORRECT unchanged
+(0→0). So E3 is a **sound reliability win** (no overfit submissions → cleaner train-verified
+portfolio) but does **not lift coverage**: it rejects the bad prim rather than finding a good one,
+because these tasks aren't generalizably induction-solvable — the LLM induces coincidental rules
+from 3–4 examples (the underdetermination wall, now *sound-gated*). Next idea: turn the gate from
+REJECT into SEARCH — re-induce (different seed) on held-out failure, accepting the first prim that
+generalizes (or multi-sample consensus / simplicity bias) — does retrying find the TRUE rule, or is
+it genuinely underdetermined?
+
 ## Verdict on the hypothesis
 - **Faithfulness: YES** — all four criteria active; the hypothesis is, for the first time, actually
   tested. The machinery (typed DSL, sound 99.4% refutation, monotone clause lattice, synth from the
