@@ -656,6 +656,89 @@ _reg(Primitive("gravity", "object", (Param("dir", _DIRS),),
                _apply_gravity, _enc_gravity, havoc=("objects", "sym")))
 
 
+# --- DSL development (move + draw regimes): foundational, general, composable prims.
+# Encodes are deliberately CONSERVATIVE (dims only) — sound (never false-refute, the
+# audit_refutations tripwire stays 0); param_search recovers the concrete params.
+_SHIFTS = tuple(range(-9, 10))   # 19 values; translate param space 19^2=361 < cap
+
+
+def _apply_translate(g, params):
+    """Shift all non-background cells by (dy, dx); vacated cells become background,
+    cells pushed off-grid are clipped. The basic object-MOVE regime."""
+    dy, dx = int(params["dy"]), int(params["dx"])
+    b = bg_of(g)
+    out = np.full_like(g, b)
+    H, W = g.shape
+    for r in range(H):
+        for c in range(W):
+            if g[r, c] != b:
+                nr, nc = r + dy, c + dx
+                if 0 <= nr < H and 0 <= nc < W:
+                    out[nr, nc] = g[r, c]
+    return out
+
+
+def _apply_connect(g, params):
+    """Connect consecutive same-colour cells along each row and column, filling the
+    background gap between them with that colour (the 'connect the dots' draw regime)."""
+    out = g.copy()
+    b = bg_of(g)
+    H, W = g.shape
+    for r in range(H):
+        for c in range(W):
+            if g[r, c] != b:
+                for c2 in range(c + 1, W):
+                    if g[r, c2] == b:
+                        continue
+                    if g[r, c2] == g[r, c]:
+                        out[r, c + 1:c2] = g[r, c]
+                    break
+    for c in range(W):
+        for r in range(H):
+            if g[r, c] != b:
+                for r2 in range(r + 1, H):
+                    if g[r2, c] == b:
+                        continue
+                    if g[r2, c] == g[r, c]:
+                        out[r + 1:r2, c] = g[r, c]
+                    break
+    return out
+
+
+def _apply_ray(g, params):
+    """Project a ray of its own colour from every non-background cell in direction
+    `dir`, painting background until the grid edge or another non-bg cell (beam regime)."""
+    d = params["dir"]
+    out = g.copy()
+    b = bg_of(g)
+    H, W = g.shape
+    src = [(r, c) for r in range(H) for c in range(W) if g[r, c] != b]
+    step = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}[d]
+    for r, c in src:
+        rr, cc = r + step[0], c + step[1]
+        while 0 <= rr < H and 0 <= cc < W and out[rr, cc] == b:
+            out[rr, cc] = g[r, c]
+            rr += step[0]; cc += step[1]
+    return out
+
+
+def _enc_dims_only(si, so, P):
+    return list(_eq_dims(si, so))
+
+
+_reg(Primitive("translate", "move", (Param("dy", _SHIFTS), Param("dx", _SHIFTS)),
+               "shift all non-background cells by (dy, dx); off-grid cells clipped",
+               _apply_translate, _enc_dims_only, havoc=("objects", "sym", "hist")))
+
+_reg(Primitive("connect_dots", "draw", (),
+               "fill the background gap between consecutive same-colour cells in each row/col",
+               _apply_connect, _enc_dims_only, havoc=("objects", "sym", "hist")))
+
+_reg(Primitive("project_ray", "draw", (Param("dir", _DIRS),),
+               "extend a ray of its colour from every non-bg cell until edge or obstacle",
+               _apply_ray, _enc_dims_only, havoc=("objects", "sym", "hist")))
+
+
 # --------------------------------------------------------------------------- #
 # Logic-stratum macros: split + cellwise boolean combine
 # --------------------------------------------------------------------------- #
