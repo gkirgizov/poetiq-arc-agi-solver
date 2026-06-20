@@ -669,12 +669,13 @@ def _apply_translate(g, params):
     b = bg_of(g)
     out = np.full_like(g, b)
     H, W = g.shape
-    for r in range(H):
-        for c in range(W):
-            if g[r, c] != b:
-                nr, nc = r + dy, c + dx
-                if 0 <= nr < H and 0 <= nc < W:
-                    out[nr, nc] = g[r, c]
+    sr0, sr1 = max(0, -dy), min(H, H - dy)     # source rows that land in-bounds
+    sc0, sc1 = max(0, -dx), min(W, W - dx)
+    if sr0 < sr1 and sc0 < sc1:
+        src = g[sr0:sr1, sc0:sc1]
+        dst = out[sr0 + dy:sr1 + dy, sc0 + dx:sc1 + dx]
+        m = src != b
+        dst[m] = src[m]
     return out
 
 

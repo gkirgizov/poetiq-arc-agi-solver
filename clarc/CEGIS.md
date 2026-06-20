@@ -157,3 +157,24 @@ structural attribute-recolor is futile (0/20); portfolio-recovery is empty (symb
 honest deliverable: the param-search lever is a sound, self-contained positive (LLM-free symbolic
 solving where the abstraction previously failed to pin params); broad lift over A0 needs the
 structural stratum, which is the fundamental ARC difficulty, not a fixable mechanism gap.
+
+## DSL DEVELOPMENT phase (user directive: grow the DSL; agents work inside it, extend until it expresses train)
+Method that WORKS: data-driven — implement a candidate operation as a throwaway fn, test it DIRECTLY
+(apply vs train+test) across the full ARC-1 eval, keep families with NET-NEW yield (not already
+covered — checked via synth), add winners to dsl.py (apply + SOUND encode + _reg + test).
+- **Net-new WINS:** `symmetry_repair(noise)` solves **8** ARC-1 tasks (mirror symmetry consistent on
+  non-occluded cells + translational periods), `connect_dots()` solves 070dd51e — ALL test-
+  generalizing, ALL found via synth_models+param_search **LLM-FREE** (validated end-to-end). Growing
+  the DSL directly lifts the sound symbolic coverage (was 2/40) — the user's "agents inside the DSL".
+- **Saturation:** ~10 other single-prim families (fractal, quad-mirror, crop-to-color, outline,
+  denoise, keep/remove-object, odd-one-out, object-gravity, panel_overlay) yield 0–1 net-new. Single
+  GLOBAL prims saturate after the symmetry jackpot; the remaining tippable tasks need COMPOSITION or
+  PER-OBJECT application (move bucket) or complex attribute-recolor (structural — 0/20 simple maps).
+- **Perf:** vectorized `translate` apply (numpy slicing) 0.5s→0.002s (150x; it dominated param_search).
+- **Architecture insight (important):** the new general prims carry permissive dims-only encodes —
+  SOUND (no false-refute) but z3-synth canNOT prune them (the σ-abstraction is too coarse), so
+  synth-composition over the rich DSL is unguided/slow. ⇒ the **LLM is the natural composer** for the
+  rich DSL (semantic reasoning), with synth+param_search as the LLM-free fast path for single prims /
+  small-param logic. NEXT PHASE: (a) per-object SELECTION sublanguage (enable object-level
+  composition for move/object tasks); (b) the **agent-extends-DSL loop** — LLM composes the enriched
+  DSL and induces task-relevant prims until train is expressed (the user's core goal; gate paid).
