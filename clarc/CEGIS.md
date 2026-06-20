@@ -97,10 +97,23 @@ all-train verification then rejects a prim that fits the n-1 but not the held-ou
 (0→0). So E3 is a **sound reliability win** (no overfit submissions → cleaner train-verified
 portfolio) but does **not lift coverage**: it rejects the bad prim rather than finding a good one,
 because these tasks aren't generalizably induction-solvable — the LLM induces coincidental rules
-from 3–4 examples (the underdetermination wall, now *sound-gated*). Next idea: turn the gate from
-REJECT into SEARCH — re-induce (different seed) on held-out failure, accepting the first prim that
-generalizes (or multi-sample consensus / simplicity bias) — does retrying find the TRUE rule, or is
-it genuinely underdetermined?
+from 3–4 examples (the underdetermination wall, now *sound-gated*). Next idea (TESTED, below): turn the gate from
+REJECT into SEARCH — or extend the winning param-search to structural recolor.
+
+### Param-search-structural lever — DECISIVELY NO HEADROOM ($0 end-to-end probe)
+The winning logic lever was param-search over a DSL prim's tiny param space. Natural extension:
+add typed attribute-recolor prims (`recolor_by_rank`/`by_attribute`) and let param-search find the
+map, avoiding overfit-prone induction. **Measured before building it** — for each of the 20
+structural tasks, learn `attribute→out_color` from train and APPLY to the test input, checking the
+real solution: **0/20 solve+test-correct** under rank_asc, rank_desc, OR raw_size. The trap: 6/20
+look "consistent by raw size" on train but that is **MEMORIZATION** — test grids have different
+sizes, so **0/20 of those actually generalize** (F4 overfit at the DSL level). Generalizing-attribute
+(rank) maps also solve 0/20. ⇒ the structural rules are NOT simple attribute recolors; they are
+multi-attribute/conditional/spatial — exactly what LLM induction attempts and **overfits** (0a2355a6:
+rank-AND-spread, rank→color inconsistent across examples: ex1 ranks→1,1,3,2 vs ex3 ranks→1,3,2,4).
+So `recolor_by_*` prims would solve 0/20 — the lever is **futile on this stratum**, and the probe
+SAVED building it. The structural ceiling is the fundamental ARC difficulty (a complex generalizing
+rule from 3–4 examples), not a fixable mechanism gap.
 
 ## Verdict on the hypothesis
 - **Faithfulness: YES** — all four criteria active; the hypothesis is, for the first time, actually
