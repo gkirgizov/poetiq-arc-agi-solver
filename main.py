@@ -58,7 +58,7 @@ async def _eval_task_data(task_id: str, task: dict) -> tuple[str, Optional[list[
         }
 
         return task_id, kaggle_preds, tokens, None, time.time() - start
-    except Exception:
+    except Exception:   # per-task isolation boundary: one bad task must not kill the batch; traceback is reported
         return task_id, None, None, traceback.format_exc(), time.time() - start
 
 
@@ -86,7 +86,7 @@ async def main():
         try:
             with open(DATA_SOLUTIONS, "r", encoding="utf-8") as f:
                 solutions_blob = json.load(f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             print(f"WARNING: Could not load solutions file '{DATA_SOLUTIONS}': {e}\nScoring will be disabled.")
 
     items = list(challenges_blob.items())
@@ -143,7 +143,7 @@ async def main():
                 json.dump(submission, f)
             with open(os.path.join(OUTPUT_DIR, f"tokens_{TIMESTAMP}.json"), "w", encoding="utf-8") as f:
                 json.dump(tokens_data, f)
-        except Exception as e:
+        except OSError as e:
             print(f"WARNING: Failed to write partial output to {OUTPUT}: {e}")
 
     total_time = time.time() - start
@@ -168,7 +168,7 @@ async def main():
         with open(os.path.join(OUTPUT_DIR, f"tokens_{TIMESTAMP}.json"), "w", encoding="utf-8") as f:
             json.dump(tokens_data, f)
         print(f"Wrote token usage to: {os.path.join(OUTPUT_DIR, f'tokens_{TIMESTAMP}.json')}")
-    except Exception as e:
+    except OSError as e:
         print(f"ERROR: Final write to {OUTPUT} failed: {e}")
 
 if __name__ == "__main__":

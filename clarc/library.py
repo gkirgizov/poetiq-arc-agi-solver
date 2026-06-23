@@ -44,15 +44,15 @@ class ContractLibrary:
                 with open(path, encoding="utf-8") as f:
                     raw = json.load(f)
                 lib.entries = [LibraryEntry(**e) for e in raw.get("entries", [])]
-            except Exception:
-                lib.entries = []
+            except (json.JSONDecodeError, OSError, TypeError, KeyError, ValueError):
+                lib.entries = []   # corrupt/old-schema file → start empty
         return lib
 
     def save(self) -> None:
         try:
             with open(self.path, "w", encoding="utf-8") as f:
                 json.dump({"entries": [asdict(e) for e in self.entries]}, f, indent=2)
-        except Exception:
+        except OSError:
             pass
 
     def has(self, code: str) -> bool:

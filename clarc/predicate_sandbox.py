@@ -32,7 +32,7 @@ if __name__ == '__main__':
         try:
             r = holds(np.array(inp), np.array(outp))
             results.append(bool(r))
-        except Exception:
+        except Exception:   # untrusted model predicate: any failure -> None (isolated in subprocess)
             results.append(None)
     print(json.dumps({{'results': results}}))
 """
@@ -134,18 +134,16 @@ async def verify_predicate(
             out, _err = await asyncio.wait_for(
                 proc.communicate(input=json.dumps(payload).encode()), timeout=timeout_s
             )
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, OSError):
             try:
                 proc.kill()
             except ProcessLookupError:
                 pass
-            return None
-        except Exception:
             return None
 
     if proc.returncode != 0:
         return None
     try:
         return json.loads(out.decode())["results"]
-    except Exception:
+    except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
         return None

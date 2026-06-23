@@ -12,7 +12,6 @@ pair. Pure z3 + in-process pipeline execution, so there is no LLM subprocess to 
 from __future__ import annotations
 
 import argparse
-import itertools
 import json
 import os
 import time
@@ -21,36 +20,13 @@ import numpy as np
 
 from clarc import devset
 from clarc.absdomain import sigma_of
-from clarc.dsl import REGISTRY, DslRuntimeError, Pipeline, param_search, run_pipeline
+# clarc.data is dependency-free (no generator import) — this probe must NOT trigger the
+# LiteLLM network-import hang that the "0% CPU stall" evals hit.
+from clarc.data import load as _load
+from clarc.dsl import REGISTRY, param_search, pipeline_fits
 from clarc.smt import TaskSMT
 
-# Inline data load — deliberately AVOID `from clarc.run import _load`, which transitively
-# imports the generator → LiteLLM, whose import makes a network call that hangs the whole
-# process when the network is degraded (the root cause of the "0% CPU stall" evals).
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_DATASETS = {"2024-train": ("arc-prize-2024", "training"), "2024-eval": ("arc-prize-2024", "evaluation"),
-             "2025-train": ("arc-prize-2025", "training"), "2025-eval": ("arc-prize-2025", "evaluation")}
-
-
-def _load(dataset):
-    folder, split = _DATASETS[dataset]
-    base = os.path.join(_HERE, "..", "data", folder)
-    with open(os.path.join(base, f"arc-agi_{split}_challenges.json"), encoding="utf-8") as f:
-        challenges = json.load(f)
-    sol_path = os.path.join(base, f"arc-agi_{split}_solutions.json")
-    solutions = json.load(open(sol_path, encoding="utf-8")) if os.path.exists(sol_path) else None
-    return challenges, solutions
-
-
-def _solves(pipe: Pipeline, pairs) -> bool:
-    # synth_models does NOT enforce the Grid/Selection type threading (only the parser
-    # does), so it can emit ill-typed skeletons — those raise AttributeError/TypeError on
-    # execution and simply aren't solutions.
-    try:
-        return all(np.array_equal(run_pipeline(pipe, np.asarray(gi), REGISTRY), np.asarray(go))
-                   for gi, go in pairs)
-    except (DslRuntimeError, ValueError, IndexError, KeyError, AttributeError, TypeError):
-        return False
 
 
 def main() -> None:
@@ -93,7 +69,7 @@ def main() -> None:
             if sk and sk not in seen:
                 seen.add(sk); skels.append(sk)
         solver = next((s for sk in skels if (s := param_search(sk, tr, cap=args.cap))), None)
-        gen = (_solves(solver, te) if (solver is not None and te) else None)
+        gen = (pipeline_fits(solver, te, REGISTRY) if (solver is not None and te) else None)
         rec = {"tid": tid, "stratum": strat[tid], "solved": solver is not None,
                "generalized": bool(gen), "solver": solver.pretty() if solver else None,
                "feasible": len(pipes), "secs": round(time.monotonic() - t0, 1)}

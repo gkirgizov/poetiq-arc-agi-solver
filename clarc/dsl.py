@@ -937,6 +937,22 @@ def apply_steps(steps: list[dict], grid: np.ndarray) -> np.ndarray:
     return run_pipeline(p, grid)
 
 
+def pipeline_fits(pipe: Pipeline, pairs, registry: Optional[dict] = None) -> bool:
+    """True iff `pipe` reproduces every (input, output) pair EXACTLY.
+
+    Execution errors count as a non-fit, not a crash: `synth_models` does not enforce
+    the parser's Grid/Selection type threading, so it can emit ill-typed skeletons that
+    raise on execution — those simply aren't solutions. Shared by `param_search` (live)
+    and `synth_coverage` (the $0 probe) so the fit check lives in one place.
+    """
+    reg = registry if registry is not None else REGISTRY
+    try:
+        return all(np.array_equal(run_pipeline(pipe, np.asarray(gi), reg), np.asarray(go))
+                   for gi, go in pairs)
+    except (DslRuntimeError, ValueError, IndexError, KeyError, AttributeError, TypeError):
+        return False
+
+
 def param_search(prim_names, pairs, *, cap: int = 2000, registry: Optional[dict] = None):
     """Concretely search a SKELETON's parameter space for a train-solver, or None.
 
@@ -960,12 +976,8 @@ def param_search(prim_names, pairs, *, cap: int = 2000, registry: Optional[dict]
             return None
     for choice in itertools.product(*per_step):
         pipe = Pipeline(tuple(Step(n, params) for n, params in zip(prim_names, choice)))
-        try:
-            if all(np.array_equal(run_pipeline(pipe, np.asarray(gi), reg), np.asarray(go))
-                   for gi, go in pairs):
-                return pipe
-        except (DslRuntimeError, ValueError, IndexError, KeyError, AttributeError, TypeError):
-            continue
+        if pipeline_fits(pipe, pairs, reg):
+            return pipe
     return None
 
 

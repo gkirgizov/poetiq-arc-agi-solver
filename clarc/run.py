@@ -12,27 +12,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
-import os
 import time
-from typing import Optional
 
-from arc_agi.io import build_kaggle_two_attempts
 from arc_agi.scoring import score_task
 
-from clarc.generator import ClaudeCodeGenerator
-from clarc.loop import solve_task
-from clarc.types import ClarcConfig
-
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DATA = os.path.join(_REPO_ROOT, "data")
-
-_DATASETS = {
-    "2024-train": ("arc-prize-2024", "training"),
-    "2024-eval": ("arc-prize-2024", "evaluation"),
-    "2025-train": ("arc-prize-2025", "training"),
-    "2025-eval": ("arc-prize-2025", "evaluation"),
-}
+# Dataset loading lives in clarc.data (dependency-free). Re-exported here as `_load`
+# / `_DATASETS` so the many `from clarc.run import _load` call sites keep working.
+from clarc.data import DATASETS as _DATASETS
+from clarc.data import load as _load
+from clarc.harness import make_generator, solve_one
 
 # Ablation arms -> ingredient flags.
 ARMS = {
@@ -69,37 +57,15 @@ ARMS = {
 }
 
 
-def _load(dataset: str) -> tuple[dict, Optional[dict]]:
-    folder, split = _DATASETS[dataset]
-    base = os.path.join(_DATA, folder)
-    with open(os.path.join(base, f"arc-agi_{split}_challenges.json"), encoding="utf-8") as f:
-        challenges = json.load(f)
-    solutions = None
-    sol_path = os.path.join(base, f"arc-agi_{split}_solutions.json")
-    if os.path.exists(sol_path):
-        with open(sol_path, encoding="utf-8") as f:
-            solutions = json.load(f)
-    return challenges, solutions
-
-
-async def _run_one(task_id, task, generator, cfg_base, sem):
+async def _run_one(task_id, task, generator, arm, args, sem):
     async with sem:
         start = time.time()
-        train = task.get("train", [])
-        test = task.get("test", [])
-        train_in = [ex["input"] for ex in train]
-        train_out = [ex["output"] for ex in train]
-        test_in = [ex["input"] for ex in test]
-        cfg_kwargs = {k: v for k, v in cfg_base.items() if not k.startswith("_")}
-        cfg = ClarcConfig(**cfg_kwargs, problem_id=task_id)
         try:
-            result = await solve_task(
-                train_in=train_in, train_out=train_out, test_in=test_in,
-                generator=generator, config=cfg, arm=cfg_base.get("_arm", "A0"),
-            )
+            result, preds = await solve_one(task_id, task, arm, generator,
+                                            iters=args.iters, seed=args.seed,
+                                            timeout=args.timeout, model=args.model)
         except Exception as e:  # noqa: BLE001 — one bad task shouldn't kill the run
             return task_id, None, {"error": repr(e)}, time.time() - start
-        preds = build_kaggle_two_attempts([result], test_in)
         log = result.get("clarc_log", {})
         meta = {
             "iteration": result.get("iteration"),
@@ -122,18 +88,12 @@ async def main_async(args) -> None:
     else:
         ids = list(challenges.keys())[: args.num] if args.num else list(challenges.keys())
 
-    generator = ClaudeCodeGenerator(model=args.model, timeout_s=args.timeout,
-                                    max_thinking_tokens=args.max_thinking,
-                                    thinking=args.thinking)
-    cfg_base = dict(
-        model=args.model, max_iterations=args.iters, seed=args.seed,
-        request_timeout_s=args.timeout, _arm=args.arm, **ARMS[args.arm],
-    )
+    generator = make_generator(args)()
     print(f"arm={args.arm} flags={ARMS[args.arm]}")
     sem = asyncio.Semaphore(args.concurrency)
 
     tasks = [
-        asyncio.create_task(_run_one(tid, challenges[tid], generator, cfg_base, sem))
+        asyncio.create_task(_run_one(tid, challenges[tid], generator, args.arm, args, sem))
         for tid in ids
         if tid in challenges
     ]
@@ -180,6 +140,7 @@ def main() -> None:
     p.add_argument("--thinking", default=None, choices=["disabled", "adaptive"],
                    help="--thinking CLI flag; 'disabled' turns extended thinking off")
     p.add_argument("--concurrency", type=int, default=4)
+    p.add_argument("--stub", action="store_true", help="offline StubGenerator (no API spend)")
     asyncio.run(main_async(p.parse_args()))
 
 

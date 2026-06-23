@@ -1,5 +1,10 @@
 # clarc/dual — Next R&D iteration: make the counterexample channel actually GUIDE
 
+> **Archived lab notebook (provenance).** Point-in-time research log; some referenced
+> paths/scripts (e.g. `conditional_probe.py`, `audit_ce_actionability.py`) have since
+> been removed. Curated findings: [`/FINDINGS.md`](../../FINDINGS.md); current guide:
+> [`/CLAUDE.md`](../../CLAUDE.md).
+
 ## Where we are (2026-06-16)
 
 Full-devset paid eval (`output/exp-guided-gate`, haiku, 120 cells), pass@1:

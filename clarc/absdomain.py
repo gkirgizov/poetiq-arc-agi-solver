@@ -28,6 +28,7 @@ from scipy import ndimage
 
 from clarc.contracts import bg as bg_of
 from clarc.contracts import content_bbox_shape, n_objects, symmetries
+from clarc.geometry import label_components
 
 N_COLORS = 10
 MAX_DIM = 30
@@ -77,7 +78,7 @@ def _object_features(g: np.ndarray):
     """All per-object summaries in one labeling pass."""
     bgc = bg_of(g)
     mask = g != bgc
-    lab, n = ndimage.label(mask, structure=ndimage.generate_binary_structure(2, 1))
+    lab, n = label_components(mask, 1)
     H, W = g.shape
     sizes: list[int] = []
     ocol = [0] * N_COLORS

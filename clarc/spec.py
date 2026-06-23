@@ -61,7 +61,7 @@ class Spec:
                     if not c.check(gi, go):
                         ok = False
                         break
-                except Exception:
+                except (ValueError, IndexError, KeyError, TypeError, ZeroDivisionError, AttributeError):
                     ok = False
                     break
             if not ok:
@@ -94,7 +94,7 @@ def loo_trusted(
             try:
                 if c.name in sub_names and c.check(held_in, held_out):
                     ok.add(c.name)
-            except Exception:
+            except (ValueError, IndexError, KeyError, TypeError, ZeroDivisionError, AttributeError):
                 pass
         surviving &= ok
     return surviving
@@ -113,7 +113,7 @@ def extract_spec(
     for builder in BUILDERS:
         try:
             c = builder(pairs)
-        except Exception:
+        except (ValueError, IndexError, KeyError, TypeError, ZeroDivisionError, AttributeError):
             c = None
         if c is not None:
             found.append(c)

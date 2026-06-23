@@ -35,13 +35,13 @@ def parse_grid(run_result: RunResult) -> Optional[np.ndarray]:
         return None
     try:
         arr = np.array(json.loads(out))
-    except Exception:
+    except (ValueError, TypeError):   # malformed JSON / ragged or non-array literal
         return None
     if arr.ndim != 2 or arr.size == 0:
         return None
     try:
         return arr.astype(int, copy=False)
-    except Exception:
+    except (ValueError, TypeError):   # non-integer cells
         return None
 
 
@@ -72,7 +72,8 @@ def admit_clause(candidate: Contract, pairs: list[Pair]) -> bool:
     """
     try:
         return candidate.holds_on(pairs)
-    except Exception:
+    # A predicate that raises on a train pair is treated as not-holding (gate rejects it).
+    except (ValueError, IndexError, KeyError, TypeError, ZeroDivisionError, AttributeError):
         return False
 
 

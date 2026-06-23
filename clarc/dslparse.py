@@ -17,6 +17,7 @@ import re
 
 from clarc.dsl import N_COLORS, REGISTRY, Pipeline, Step
 from clarc.dsltypes import Ty
+from clarc.llm_parse import extract_block
 
 
 class DslError(ValueError):
@@ -33,10 +34,7 @@ _MAP_RE = re.compile(r"^(\d)\s*->\s*(\d)$")
 
 def extract_dsl_block(text: str) -> str | None:
     """Pull the last ```dsl fenced block out of an LLM response."""
-    blocks = re.findall(r"```dsl\s*(.*?)```", text, re.S | re.I)
-    if blocks:
-        return blocks[-1].strip()
-    return None
+    return extract_block(text, "dsl", last=True)
 
 
 def parse_pipeline(src: str, registry: dict | None = None) -> Pipeline:

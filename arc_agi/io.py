@@ -11,7 +11,7 @@ def _coerce_grid(x: Any) -> list:
 
         if isinstance(x, _np.ndarray):
             return x.tolist()
-    except Exception:
+    except ImportError:
         pass
     # stringified JSON -> list
     if isinstance(x, str):
@@ -20,7 +20,7 @@ def _coerce_grid(x: Any) -> list:
             try:
                 parsed = json.loads(s)
                 return parsed
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 # not JSON; fall through
                 return []
         else:

@@ -18,6 +18,7 @@ import numpy as np
 from scipy import ndimage
 
 from clarc.contracts import bg as bg_of
+from clarc.geometry import label_components
 
 MAX_OBJECTS = 12   # segmentations producing more are rejected (SMT tractability)
 
@@ -83,7 +84,7 @@ def _mk_object(g: np.ndarray, mask: np.ndarray) -> Object:
 def seg_connected(g: np.ndarray, conn: int = 1) -> list[Object]:
     """Connected components of non-background cells (conn=1: 4-, conn=2: 8-)."""
     bg = bg_of(g)
-    lab, n = ndimage.label(g != bg, structure=ndimage.generate_binary_structure(2, conn))
+    lab, n = label_components(g != bg, conn)
     return [_mk_object(g, lab == k) for k in range(1, n + 1)]
 
 
@@ -94,7 +95,7 @@ def seg_connected_samecolor(g: np.ndarray, conn: int = 1) -> list[Object]:
     for c in np.unique(g):
         if c == bg:
             continue
-        lab, n = ndimage.label(g == c, structure=ndimage.generate_binary_structure(2, conn))
+        lab, n = label_components(g == c, conn)
         objs += [_mk_object(g, lab == k) for k in range(1, n + 1)]
     return objs
 

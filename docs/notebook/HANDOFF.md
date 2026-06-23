@@ -1,5 +1,9 @@
 # clarc — Handoff for the next agent
 
+> **Archived lab notebook (provenance).** Point-in-time research log; some referenced
+> paths/scripts have since moved or been removed. Curated findings: [`/FINDINGS.md`](../../FINDINGS.md);
+> current guide + authoritative arm table: [`/CLAUDE.md`](../../CLAUDE.md).
+
 **Goal:** verify the hypothesis that *contract-learning helps an LLM solve ARC* —
 i.e. that arms A5/A1/A1L beat the poetiq-style baseline A0. The **system is built
 and unit-verified (32 tests)**.

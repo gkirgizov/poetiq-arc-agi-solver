@@ -23,16 +23,12 @@ import statistics
 import time
 from collections import defaultdict
 
-from arc_agi.io import build_kaggle_two_attempts
 from arc_agi.scoring import score_task
 
-from clarc.generator import ClaudeCodeGenerator, StubGenerator
-from clarc.loop import solve_task
-from clarc.run import ARMS, _load
-from clarc.types import ClarcConfig
+from clarc.harness import make_generator, solve_one
+from clarc.run import _load
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_IDENTITY = "def transform(grid):\n    return grid"
 _OUT = os.path.join(_HERE, "..", "output", "experiment")
 
 
@@ -61,20 +57,8 @@ def _load_checkpoint(path):
 
 async def _run(tid, task, arm, gen, *, iters, seed, sem, timeout, lean=False):
     async with sem:
-        ti = [e["input"] for e in task["train"]]
-        to = [e["output"] for e in task["train"]]
-        test_in = [e["input"] for e in task["test"]]
-        cfg = ClarcConfig(model=None, max_iterations=iters, seed=seed, lean_prompt=lean,
-                          request_timeout_s=timeout, problem_id=tid, **ARMS[arm])
-        if arm.startswith("G"):   # guided code-gen (A0 + logical dual)
-            from clarc.solver import guided_solve
-            res = await guided_solve(train_in=ti, train_out=to, test_in=test_in,
-                                     generator=gen, config=cfg, arm=arm)
-        else:
-            res = await solve_task(train_in=ti, train_out=to, test_in=test_in,
-                                   generator=gen, config=cfg, arm=arm)
-        preds = build_kaggle_two_attempts([res], test_in)
-        return res, preds
+        return await solve_one(tid, task, arm, gen, iters=iters, seed=seed,
+                               timeout=timeout, lean=lean, model=None)
 
 
 def _rec(phase, tid, arm, log, acc):
@@ -170,10 +154,7 @@ async def main_async(args):
     done = _load_checkpoint(runs_path)
     sink = open(runs_path, "a", encoding="utf-8")  # APPEND — never clobber prior results
 
-    def gen():
-        return StubGenerator([_IDENTITY]) if args.stub else ClaudeCodeGenerator(
-            model=args.model, timeout_s=args.timeout, effort=args.effort,
-            max_thinking_tokens=args.max_thinking, thinking=args.thinking)
+    gen = make_generator(args)
 
     def score(tid, preds):
         return score_task(preds, solutions[tid]) if (solutions and tid in solutions and preds) else 0.0

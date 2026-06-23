@@ -26,36 +26,20 @@ from arc_agi.io import build_kaggle_two_attempts
 from arc_agi.scoring import score_task
 
 from clarc.devset import all_ids, load as load_devset, stratum_of
-from clarc.generator import ClaudeCodeGenerator, StubGenerator
-from clarc.loop import solve_task
-from clarc.run import ARMS, _load
-from clarc.types import ClarcConfig
+from clarc.harness import make_generator, solve_one
+from clarc.run import _load
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_IDENTITY = "def transform(grid):\n    return grid"
-
-
-def _make_generator(args):
-    if args.stub:
-        # Fresh stub per call avoids shared state; always returns identity.
-        return lambda: StubGenerator([_IDENTITY])
-    gen = ClaudeCodeGenerator(model=args.model, timeout_s=args.timeout)
-    return lambda: gen
 
 
 async def _one(task_id, task, arm, seed, gen_factory, args, sem):
     async with sem:
-        ti = [e["input"] for e in task["train"]]
-        to = [e["output"] for e in task["train"]]
         test_in = [e["input"] for e in task["test"]]
-        cfg = ClarcConfig(
-            model=args.model, max_iterations=args.iters, seed=seed,
-            request_timeout_s=args.timeout, problem_id=task_id, **ARMS[arm],
-        )
         try:
-            res = await solve_task(train_in=ti, train_out=to, test_in=test_in,
-                                   generator=gen_factory(), config=cfg, arm=arm)
-        except Exception as e:  # noqa: BLE001
+            res, _preds = await solve_one(task_id, task, arm, gen_factory(),
+                                          iters=args.iters, seed=seed,
+                                          timeout=args.timeout, model=args.model)
+        except Exception as e:  # noqa: BLE001 — one bad cell shouldn't kill the sweep
             return task_id, arm, seed, {"error": repr(e)}, None
         return task_id, arm, seed, res, test_in
 
@@ -130,7 +114,7 @@ async def main_async(args):
         ids = devset["structural"][: args.num] + devset["logic"][: args.num]
     arms = args.arms.split(",")
     seeds = [int(s) for s in args.seeds.split(",")]
-    gen_factory = _make_generator(args)
+    gen_factory = make_generator(args)
     sem = asyncio.Semaphore(args.concurrency)
 
     print(f"tasks={len(ids)} arms={arms} seeds={seeds} model={args.model or 'CLI-default'} "

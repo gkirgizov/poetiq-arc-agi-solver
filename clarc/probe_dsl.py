@@ -22,9 +22,9 @@ import numpy as np
 
 from clarc import devset
 from clarc.absdomain import sigma_of
+from clarc.data import load as _load   # dependency-free loader (no generator import)
 from clarc.dsl import REGISTRY, DslRuntimeError, Pipeline, Step, run_pipeline
 from clarc.dsltypes import Ty
-from clarc.run import _load
 from clarc.smt import TaskSMT
 
 

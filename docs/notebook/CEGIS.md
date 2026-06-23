@@ -1,5 +1,9 @@
 # Faithful CEGIS test — build log & findings
 
+> **Archived lab notebook (provenance).** Point-in-time research log; some referenced
+> paths/scripts have since moved or been removed. Curated findings: [`/FINDINGS.md`](../../FINDINGS.md);
+> current guide + authoritative arm table: [`/CLAUDE.md`](../../CLAUDE.md).
+
 Goal: test the real hypothesis — does SMT-verified, type-guided synthesis (LLM proposing in a
 typed DSL, SMT pruning/learning, synth generating from the pruned space, induction growing
 coverage) beat the A0 baseline? The prior G-arm effort satisfied **none** of the four

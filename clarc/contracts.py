@@ -109,7 +109,7 @@ class Contract:
 def _all(pairs: list[Pair], pred: Callable[[np.ndarray, np.ndarray], bool]) -> bool:
     try:
         return all(pred(gi, go) for gi, go in pairs)
-    except Exception:
+    except (ValueError, IndexError, KeyError, TypeError, ZeroDivisionError, AttributeError):
         return False
 
 

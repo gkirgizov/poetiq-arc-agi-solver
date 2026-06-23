@@ -4,6 +4,15 @@ From the train examples it induces (via the SMT matching in objsmt) the structur
 contract of the transformation: how objects correspond and what is preserved or
 mapped (count / shape / color / position / size). This is far richer guidance than
 σ-count invariants — it tells the generator the object-level shape of the answer.
+
+STATUS — settled NEGATIVE result (see docs/notebook/RD_NEXT.md): across every paid
+regime the counterexample channel fires but does NOT guide a code-gen solver (the
+contracts justified by 3-4 examples can't see content errors; the ones that can are
+coincidental and overfit). The dual is kept only as the PORTFOLIO FLOOR (G0 always
+runs, so the union of train-verified solves is ≥ A0 by construction) and as the
+verified-selection signal (arm G5). The gate / strong-CE / soft-prompt paths (arms
+G3/G4) are retained as the recorded experiments behind that conclusion; do not invest
+further in the CE channel for this generator class.
 """
 
 from __future__ import annotations
