@@ -13,6 +13,21 @@ dependencies = [
     "z3-solver>=4.13",
 ]
 
+[project.scripts]
+# Runnable drivers (clarc/cli/) and $0 diagnostics (clarc/probes/). Each module
+# already exposes `def main()`. `python -m clarc.cli.<x>` works equivalently.
+clarc-run = "clarc.cli.run:main"
+clarc-experiment = "clarc.cli.experiment:main"
+clarc-ablate = "clarc.cli.ablate:main"
+clarc-devset = "clarc.cli.devset:main"
+clarc-probe-dsl = "clarc.probes.probe_dsl:main"
+clarc-synth-coverage = "clarc.probes.synth_coverage:main"
+clarc-audit-refutations = "clarc.probes.audit_refutations:main"
+clarc-cegis-audit = "clarc.probes.cegis_audit:main"
+clarc-ce-replay = "clarc.probes.ce_replay:main"
+clarc-dual-oracle = "clarc.probes.dual_oracle:main"
+clarc-vselect-eval = "clarc.probes.vselect_eval:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",

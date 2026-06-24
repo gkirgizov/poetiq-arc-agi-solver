@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import json
 
-from clarc.generator import StubGenerator
-from clarc.loop import solve_task
-from clarc.run import ARMS
-from clarc.types import ClarcConfig
+from clarc.solve.generator import StubGenerator
+from clarc.solve.loop import solve_task
+from clarc.cli.run import ARMS
+from clarc.common.types import ClarcConfig
 
 TRAIN_IN = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
 TRAIN_OUT = [[[4, 3], [2, 1]], [[8, 7], [6, 5]]]

@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from clarc.generator import StubGenerator
-from clarc.loop import _blocked_from_clauses, solve_task
-from clarc.run import ARMS
-from clarc.types import ClarcConfig
+from clarc.solve.generator import StubGenerator
+from clarc.solve.loop import _blocked_from_clauses, solve_task
+from clarc.cli.run import ARMS
+from clarc.common.types import ClarcConfig
 
 
 def _flip_h(g):
@@ -33,7 +33,7 @@ def test_param_search_recovers_solving_params():
     abstraction can't pin params), so it usually fails concretely. param_search brute-forces
     the skeleton's small concrete param space and recovers the solver — the lever that turns
     pure-synth's 0/40 into real solves (e.g. split_binop_h(and,1) witness -> (or,1) solver)."""
-    from clarc.dsl import REGISTRY, Pipeline, Step, param_search, run_pipeline
+    from clarc.dsl.core import REGISTRY, Pipeline, Step, param_search, run_pipeline
     truth = Pipeline((Step("split_binop_h", {"op": "or", "out_color": 1}),))
     grids = [np.array([[0, 2, 0, 3], [1, 0, 5, 0]]),
              np.array([[7, 0, 0, 4], [0, 8, 9, 0]]),

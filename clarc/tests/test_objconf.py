@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from clarc.objconf import _vacuous, forward_solves, gate, identity_like, tier_names
-from clarc.objsmt import induce_object_contracts
-from clarc.run import _load
+from clarc.objects.conf import _vacuous, forward_solves, gate, identity_like, tier_names
+from clarc.objects.smt import induce_object_contracts
+from clarc.cli.run import _load
 
 
 def _swap(g):

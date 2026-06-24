@@ -5,8 +5,8 @@ No network: `_parse_envelope` is tested on synthetic dicts; StubGenerator is pur
 
 import pytest
 
-from clarc.codeparse import parse_transform_code
-from clarc.generator import StubGenerator, _parse_envelope
+from clarc.common.codeparse import parse_transform_code
+from clarc.solve.generator import StubGenerator, _parse_envelope
 
 
 def test_parse_envelope_success():

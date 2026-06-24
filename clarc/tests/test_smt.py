@@ -10,9 +10,9 @@ from __future__ import annotations
 import numpy as np
 import z3  # noqa: F401  (env sanity)
 
-from clarc.absdomain import sigma_of
-from clarc.dslparse import parse_pipeline
-from clarc.smt import TaskSMT
+from clarc.dsl.absdomain import sigma_of
+from clarc.dsl.parse import parse_pipeline
+from clarc.dsl.smt import TaskSMT
 
 
 def _facts(*pairs):
@@ -104,7 +104,7 @@ def test_shape_class_refutation():
     """M5d: the per-object shape signature lets σ tell hline from vline.
     A task whose output rotates horizontal lines into vertical ones refutes
     flip_h (which preserves the hline/vline classes) but not rot90."""
-    from clarc.dsl import run_pipeline
+    from clarc.dsl.core import run_pipeline
     g = np.array([[1, 1, 1, 0, 0], [0, 0, 0, 0, 0], [2, 2, 0, 0, 0],
                   [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]])
     out = run_pipeline(parse_pipeline("rot90()"), g)

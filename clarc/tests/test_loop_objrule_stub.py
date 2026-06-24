@@ -14,10 +14,10 @@ import json
 
 import numpy as np
 
-from clarc.generator import StubGenerator
-from clarc.loop import solve_task
-from clarc.run import ARMS
-from clarc.types import ClarcConfig
+from clarc.solve.generator import StubGenerator
+from clarc.solve.loop import solve_task
+from clarc.cli.run import ARMS
+from clarc.common.types import ClarcConfig
 
 
 def _rule(g):

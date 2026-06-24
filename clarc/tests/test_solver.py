@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from clarc.dual.object_dual import ObjectDual
-from clarc.generator import StubGenerator
-from clarc.solver import guided_solve
-from clarc.types import ClarcConfig
+from clarc.objects.dual.object_dual import ObjectDual
+from clarc.solve.generator import StubGenerator
+from clarc.solve.solver import guided_solve
+from clarc.common.types import ClarcConfig
 
 # recolor task: swap colors 1<->2, shapes/positions preserved
 TRAIN_IN = [[[1, 1, 0], [0, 0, 0], [0, 2, 2]], [[0, 1, 0], [2, 0, 0], [0, 0, 2]]]

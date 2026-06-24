@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 import z3
 
-from clarc.absdomain import ZState, sigma_of
-from clarc.generator import StubGenerator
-from clarc.learn_prim import (
+from clarc.dsl.absdomain import ZState, sigma_of
+from clarc.solve.generator import StubGenerator
+from clarc.dsl.induce import (
     TemplateContract,
     derive_contract,
     derive_contract_verified,
@@ -16,7 +16,7 @@ from clarc.learn_prim import (
     make_encode,
     verify_contract,
 )
-from clarc.smt import TaskSMT
+from clarc.dsl.smt import TaskSMT
 
 rng = np.random.default_rng(0)
 
@@ -69,7 +69,7 @@ def test_verify_rejects_overstrong_contract():
     # samples from "keep only largest object" — n_obj changes
     def keep_largest(g):
         from scipy import ndimage
-        from clarc.contracts import bg as bgf
+        from clarc.contracts.vocab import bg as bgf
         m = g != bgf(g)
         lab, n = ndimage.label(m, structure=ndimage.generate_binary_structure(2, 1))
         if n == 0:

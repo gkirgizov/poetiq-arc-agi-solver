@@ -9,11 +9,11 @@ import json
 import numpy as np
 import pytest
 
-from clarc.absdomain import sigma_of
-from clarc.dsl import REGISTRY, compile_pipeline
-from clarc.dslparse import parse_pipeline
-from clarc.learn_prim import InducedPrimitive, derive_contract, make_encode
-from clarc.smt import TaskSMT
+from clarc.dsl.absdomain import sigma_of
+from clarc.dsl.core import REGISTRY, compile_pipeline
+from clarc.dsl.parse import parse_pipeline
+from clarc.dsl.induce import InducedPrimitive, derive_contract, make_encode
+from clarc.dsl.smt import TaskSMT
 
 
 def _diagonal_mirror_prim():
@@ -82,7 +82,7 @@ async def test_compile_pipeline_with_induced_runs_in_sandbox():
 
 
 def test_prim_library_roundtrip(tmp_path):
-    from clarc.prim_library import PrimLibrary
+    from clarc.dsl.prim_library import PrimLibrary
     ind = _diagonal_mirror_prim()
     lib = PrimLibrary(path=str(tmp_path / "prims.json"))
     lib.add(ind)

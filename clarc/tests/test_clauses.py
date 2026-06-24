@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from clarc.clauses import Clause, ClauseStore
-from clarc.dsl import REGISTRY
-from clarc.dslparse import parse_pipeline
-from clarc.smt import TaskSMT
+from clarc.dsl.clauses import Clause, ClauseStore
+from clarc.dsl.core import REGISTRY
+from clarc.dsl.parse import parse_pipeline
+from clarc.dsl.smt import TaskSMT
 from clarc.tests.test_smt import _facts, _grid, tile_ratio_facts
 
 

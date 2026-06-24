@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 import z3
 
-from clarc.absdomain import ZState, sigma_of
-from clarc.dsl import (
+from clarc.dsl.absdomain import ZState, sigma_of
+from clarc.dsl.core import (
     REGISTRY,
     DslRuntimeError,
     Pipeline,
@@ -27,9 +27,9 @@ from clarc.dsl import (
     param_index,
     run_pipeline,
 )
-from clarc.dslobj import grid_to_selection, to_grid
-from clarc.dslparse import DslError, extract_dsl_block, parse_pipeline
-from clarc.dsltypes import Ty
+from clarc.dsl.obj import grid_to_selection, to_grid
+from clarc.dsl.parse import DslError, extract_dsl_block, parse_pipeline
+from clarc.dsl.types import Ty
 
 rng = np.random.default_rng(7)
 
@@ -86,7 +86,7 @@ def _input_for(prim, g):
 
 
 def _check_sound(prim, g: np.ndarray, params: dict) -> None:
-    from clarc.absdomain import MAX_DIM
+    from clarc.dsl.absdomain import MAX_DIM
     try:
         val = _input_for(prim, g)
         out = prim.apply(val, params)
@@ -129,7 +129,7 @@ def test_primitive_contract_sound(name):
 def test_pipeline_contract_sound_composed():
     """Two-step TYPE-COMPATIBLE pipelines: composition must be satisfiable
     end-to-end (intermediate state free, only endpoints pinned)."""
-    from clarc.absdomain import MAX_DIM
+    from clarc.dsl.absdomain import MAX_DIM
     lrng = np.random.default_rng(11)   # local rng: deterministic regardless of test order
     names = sorted(REGISTRY)
     for _ in range(300):
@@ -196,7 +196,7 @@ def test_types_thread_correctly():
     parse_pipeline("rot90(); flip_h(); crop_bbox(); scale(2,2)")          # all Grid
     parse_pipeline("objects(); select_largest(); recolor_all(3); render()")  # crosses
     # ill-typed: object op on a Grid, and a pipeline not ending in Grid
-    from clarc.dslparse import DslTypeError
+    from clarc.dsl.parse import DslTypeError
     with pytest.raises(DslTypeError):
         parse_pipeline("select_largest()")
     with pytest.raises(DslTypeError):

@@ -7,9 +7,9 @@ This is the Phase 0 proof that the loop wiring is sound.
 
 import json
 
-from clarc.generator import StubGenerator
-from clarc.loop import solve_task
-from clarc.types import ClarcConfig
+from clarc.solve.generator import StubGenerator
+from clarc.solve.loop import solve_task
+from clarc.common.types import ClarcConfig
 
 # A tiny rot180 task.
 TRAIN_IN = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]

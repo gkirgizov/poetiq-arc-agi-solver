@@ -75,7 +75,7 @@ The live edges where this becomes interesting again — each attacked through th
 4. **Multi-seed evaluation** to lift the ~2-task noise floor that makes single-seed
    solve-rate deltas unreadable.
 
-To probe a new hypothesis cheaply: `uv run python -m clarc.synth_coverage --depth 2`
+To probe a new hypothesis cheaply: `uv run python -m clarc.probes.synth_coverage --depth 2`
 measures the DSL ceiling with no LLM and no spend.
 
 ## How to run
@@ -85,21 +85,21 @@ uv sync
 uv run pytest -q                          # offline tests (CLI tests skipped by default)
 
 # $0, no LLM — reproduce the symbolic coverage floor (≈2/40, both generalizing):
-uv run python -m clarc.synth_coverage --depth 2
+uv run python -m clarc.probes.synth_coverage --depth 2
 
 # $0 — DSL refutation power + soundness (reports 0 false refutations):
-uv run python -m clarc.probe_dsl
+uv run python -m clarc.probes.probe_dsl
 
 # Offline smoke of the full solve loop (StubGenerator, no API spend):
-uv run python -m clarc.ablate --stub --num 2 --arms A0,A1 --seeds 0
+uv run python -m clarc.cli.ablate --stub --num 2 --arms A0,A1 --seeds 0
 ```
 
 **A paid head-to-head** (spends; gate it): the runner is resumable and reports cost live.
 
 ```bash
-uv run python -m clarc.experiment --model claude-sonnet-4-5 --max-thinking 4000 \
+uv run python -m clarc.cli.experiment --model claude-sonnet-4-5 --max-thinking 4000 \
     --devset --arms A0,A5,A1,A1L --iters 6
-uv run python -m clarc.experiment --report-only --out output/experiment
+uv run python -m clarc.cli.experiment --report-only --out output/experiment
 ```
 
 Arms, entry points, and the R&D loop are documented in **[CLAUDE.md](CLAUDE.md)**.
@@ -108,11 +108,12 @@ Arms, entry points, and the R&D loop are documented in **[CLAUDE.md](CLAUDE.md)*
 
 | Path | What |
 |---|---|
-| `clarc/loop.py`, `solver.py`, `harness.py` | the CDCL solve loop (A/D/E arms), the guided code-gen loop (G arms), the shared runner core |
-| `clarc/dsl.py`, `smt.py`, `absdomain.py` | the typed DSL, the z3 CHECK/SYNTH layer, the abstract grid domain σ |
-| `clarc/objects.py`, `objsmt.py`, `dual/` | the object-correspondence dual (settled-negative; portfolio floor) |
-| `clarc/contracts.py`, `spec.py`, `store.py`, `learn.py`, `library.py` | the contract vocabulary, verified spec, clause store, induction, cross-task library |
-| `clarc/run.py`, `experiment.py`, `ablate.py`, `devset.py` | runners + dev set |
+| `clarc/solve/` (`loop.py`, `solver.py`, `harness.py`) | the CDCL solve loop (A/D/E arms), the guided code-gen loop (G arms), the shared runner core |
+| `clarc/dsl/` (`core.py`, `smt.py`, `absdomain.py`, `induce.py`) | the typed DSL, the z3 CHECK/SYNTH layer, the abstract grid domain σ, primitive induction |
+| `clarc/objects/` (`base.py`, `smt.py`, `dual/`) | the object-correspondence dual (settled-negative; portfolio floor) |
+| `clarc/contracts/` (`vocab.py`, `spec.py`, `store.py`, `learn.py`, `library.py`) | the contract vocabulary, verified spec, clause store, induction, cross-task library |
+| `clarc/cli/` (`run.py`, `experiment.py`, `ablate.py`, `devset.py`) · `clarc/probes/` | runners + dev set · `$0` diagnostics |
+| `clarc/common/` | shared leaf utilities (types, data, geometry, parsing, paths) |
 | `arc_agi/` | the upstream poetiq harness (baseline, reused by import) |
 | `docs/notebook/`, `docs/assets/`, `knowledge/` | lab notebooks · figures · the original research sketch |
 

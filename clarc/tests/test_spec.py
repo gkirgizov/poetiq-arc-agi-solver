@@ -11,8 +11,8 @@ import os
 import numpy as np
 import pytest
 
-from clarc.contracts import bg, n_objects, palette, symmetries
-from clarc.spec import extract_spec
+from clarc.contracts.vocab import bg, n_objects, palette, symmetries
+from clarc.contracts.spec import extract_spec
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _TRAIN = os.path.join(_REPO, "data", "arc-prize-2024", "arc-agi_training_challenges.json")

@@ -6,13 +6,13 @@ escalation, hard pruning, and an end-to-end A1 solve.
 
 import numpy as np
 
-from clarc.analyze import admit_clause, classify_conflict, parse_grid
-from clarc.contracts import Contract
-from clarc.generator import StubGenerator
-from clarc.loop import solve_task
-from clarc.spec import extract_spec, loo_trusted
-from clarc.store import LearnedStore
-from clarc.types import ClarcConfig, RunResult
+from clarc.solve.analyze import admit_clause, classify_conflict, parse_grid
+from clarc.contracts.vocab import Contract
+from clarc.solve.generator import StubGenerator
+from clarc.solve.loop import solve_task
+from clarc.contracts.spec import extract_spec, loo_trusted
+from clarc.contracts.store import LearnedStore
+from clarc.common.types import ClarcConfig, RunResult
 
 # A genuine recolor task (1 -> 2), repeated colors so contracts are meaningful.
 TRAIN_IN = [[[1, 0], [0, 1]], [[1, 1], [0, 0]]]

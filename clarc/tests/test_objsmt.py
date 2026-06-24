@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from clarc.objects import segment
-from clarc.objsmt import check_output, induce_object_contracts
+from clarc.objects.base import segment
+from clarc.objects.smt import check_output, induce_object_contracts
 
 
 def test_segmentation_strategies_see_objects_differently():
@@ -34,7 +34,7 @@ def test_induce_recolor_contract_global_map():
     assert "color_map" in c.used
     assert c.pi[1] == 2 and c.pi[2] == 1     # the induced global swap
     # a candidate output that recolors WRONG (1->3) must be refuted
-    from clarc.objects import segment as seg
+    from clarc.objects.base import segment as seg
     wrong = g1.copy(); wrong[g1 == 1] = 3; wrong[g1 == 2] = 1
     assert not check_output(seg(g1, c.segmentation), seg(wrong, c.segmentation), c)
     # the correct output is accepted
@@ -52,7 +52,7 @@ def test_induce_position_shift_contract():
     assert c is not None
     assert "pos_shift" in c.used and (c.dr, c.dc) == (1, 0)
     assert "shape_exact" in c.used and "color_preserved" in c.used
-    from clarc.objects import segment as seg
+    from clarc.objects.base import segment as seg
     # an output shifted the WRONG way is refuted
     bad = np.zeros_like(g1); bad[:-1] = g1[1:]
     assert not check_output(seg(g1, c.segmentation), seg(bad, c.segmentation), c)
@@ -61,7 +61,7 @@ def test_induce_position_shift_contract():
 def test_solve_by_contracts_uniform_transform():
     """A uniform per-object transform (recolor 1<->2, shapes/positions kept) is
     SOLVED purely logically: induce contracts, apply forward to test, no LLM."""
-    from clarc.objsolve import solve_by_contracts
+    from clarc.objects.solve import solve_by_contracts
     def swap(g):
         g = np.array(g); o = g.copy(); o[g == 1] = 2; o[g == 2] = 1; return o
     g1 = [[1, 1, 0], [0, 0, 0], [0, 2, 2]]
@@ -77,7 +77,7 @@ def test_solve_by_contracts_rejects_conditional_task():
     global contract. Two pairs where 'largest' and 'color' DISAGREE (color 1 is
     largest in one, smallest in the other) defeat any global color-map, so the
     uniform solver correctly declines (no false solve) — the gap M7c must close."""
-    from clarc.objsolve import solve_by_contracts
+    from clarc.objects.solve import solve_by_contracts
     g1 = [[1, 1, 0], [1, 0, 2]]            # color 1 is largest (size 3)
     o1 = [[3, 3, 0], [3, 0, 1]]            # largest -> 3, other -> 1
     g2 = [[2, 2, 0], [2, 0, 1]]            # color 2 is largest, color 1 is smallest
@@ -90,8 +90,8 @@ def test_solve_by_contracts_rejects_conditional_task():
 def test_diagnose_output_localizes_color_violation():
     """The witness decoder pinpoints WHICH object violates WHICH term, with the target
     value — the actionable CEGIS signal (vs the old 'objects do not match')."""
-    from clarc.objects import segment as seg
-    from clarc.objsmt import diagnose_output
+    from clarc.objects.base import segment as seg
+    from clarc.objects.smt import diagnose_output
 
     def swap(g):
         o = g.copy(); o[g == 1] = 2; o[g == 2] = 1
@@ -105,8 +105,8 @@ def test_diagnose_output_localizes_color_violation():
 
 
 def test_diagnose_output_names_missing_object_on_count_mismatch():
-    from clarc.objects import segment as seg
-    from clarc.objsmt import diagnose_output
+    from clarc.objects.base import segment as seg
+    from clarc.objects.smt import diagnose_output
 
     def swap(g):
         o = g.copy(); o[g == 1] = 2; o[g == 2] = 1
@@ -128,7 +128,7 @@ def test_refute_requires_consistent_matching():
     c = induce_object_contracts(pairs)
     assert c is not None
     assert "color_map" in c.used and all(c.pi[k] == 5 for k in (1, 2, 3, 7, 8, 9))
-    from clarc.objects import segment as seg
+    from clarc.objects.base import segment as seg
     # output where one object kept its original color -> no consistent matching
     bad = to5(g1); bad[g1 == 1] = 1
     assert not check_output(seg(g1, c.segmentation), seg(bad, c.segmentation), c)

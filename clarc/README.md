@@ -20,28 +20,33 @@ uv run pytest -q          # offline tests; real-CLI tests are marked `cli` and s
 ## Try it without spending anything
 
 ```bash
-uv run python -m clarc.synth_coverage --depth 2   # DSL ceiling, no LLM (≈2/40)
-uv run python -m clarc.audit_refutations          # soundness tripwire (0 false refutations)
-uv run python -m clarc.ablate --stub --num 2 --arms A0,A1 --seeds 0   # offline solve-loop smoke
+uv run python -m clarc.probes.synth_coverage --depth 2   # DSL ceiling, no LLM (≈2/40)
+uv run python -m clarc.probes.audit_refutations          # soundness tripwire (0 false refutations)
+uv run python -m clarc.cli.ablate --stub --num 2 --arms A0,A1 --seeds 0   # offline solve-loop smoke
 ```
 
 ## Where things live
 
-- **Solve loops:** `loop.py` (A/D/E arms — contract-learning + DSL⇄SMT CDCL),
-  `solver.py` (G arms — guided code-gen), `harness.py` (shared runner core used by the
-  three CLIs below).
-- **Runners:** `run.py` (single/batch), `experiment.py` (resumable failure-band),
-  `ablate.py` (arms × seeds), `devset.py` (dev-set curation). Each takes `--stub`.
-- **DSL ⇄ SMT:** `dsl.py`, `dsltypes.py`, `dslparse.py`, `dslobj.py`, `absdomain.py`,
-  `smt.py`, `clauses.py`, `learn_prim.py`, `prim_library.py`.
-- **Object dual (settled-negative; portfolio floor):** `objects.py`, `objsmt.py`,
-  `objsolve.py`, `objconf.py`, `dual/`.
-- **Contract vocabulary + learning:** `contracts.py`, `spec.py`, `store.py`, `learn.py`,
-  `library.py`, `analyze.py`, `predicate_sandbox.py`.
-- **Shared utilities:** `data.py` (dataset loading, no LLM import), `geometry.py`
-  (segmentation), `llm_parse.py` (fenced-block extraction).
-- **`$0` diagnostics:** `synth_coverage.py`, `probe_dsl.py`, `audit_refutations.py`,
-  `cegis_audit.py`, `ce_replay.py`, `dual_oracle.py`, `vselect_eval.py`.
+The package is split into layered subpackages with a strict acyclic dependency graph
+(`common < contracts < objects < dsl < solve < {cli, probes}`):
 
-Arm definitions are authoritative in **`run.py` (`ARMS`)** — see the arm table in
+- **`solve/` — solve loops:** `loop.py` (A/D/E arms — contract-learning + DSL⇄SMT CDCL),
+  `solver.py` (G arms — guided code-gen), `harness.py` (shared runner core), `generator.py`,
+  `analyze.py`.
+- **`cli/` — runners:** `run.py` (single/batch), `experiment.py` (resumable failure-band),
+  `ablate.py` (arms × seeds), `devset.py` (dev-set curation). Each takes `--stub`; also
+  exposed as `clarc-*` console scripts.
+- **`dsl/` — DSL ⇄ SMT:** `core.py`, `types.py`, `parse.py`, `obj.py`, `absdomain.py`,
+  `smt.py`, `clauses.py`, `induce.py`, `prim_library.py`.
+- **`objects/` — object dual (settled-negative; portfolio floor):** `base.py`, `smt.py`,
+  `solve.py`, `conf.py`, `dual/`.
+- **`contracts/` — contract vocabulary + learning:** `vocab.py`, `spec.py`, `store.py`,
+  `learn.py`, `library.py`, `sandbox.py`.
+- **`common/` — shared utilities:** `data.py` (dataset loading, no LLM import),
+  `geometry.py` (segmentation), `llm_parse.py`/`codeparse.py` (block extraction),
+  `types.py`, `instrument.py`, `paths.py` (filesystem anchors).
+- **`probes/` — `$0` diagnostics:** `synth_coverage.py`, `probe_dsl.py`,
+  `audit_refutations.py`, `cegis_audit.py`, `ce_replay.py`, `dual_oracle.py`, `vselect_eval.py`.
+
+Arm definitions are authoritative in **`cli/run.py` (`ARMS`)** — see the arm table in
 [CLAUDE.md](../CLAUDE.md#surfaces--arms).

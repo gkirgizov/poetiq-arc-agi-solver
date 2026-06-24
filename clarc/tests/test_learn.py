@@ -6,13 +6,13 @@ library round-trip, and an end-to-end A1L solve where a new invariant is induced
 
 import numpy as np
 
-from clarc.generator import StubGenerator
-from clarc.learn import induced_violations, parse_proposal, propose_contract, verify_on_pairs
-from clarc.library import ContractLibrary
-from clarc.loop import solve_task
-from clarc.predicate_sandbox import verify_predicate
-from clarc.store import LearnedStore
-from clarc.types import ClarcConfig, LearnedContract
+from clarc.solve.generator import StubGenerator
+from clarc.contracts.learn import induced_violations, parse_proposal, propose_contract, verify_on_pairs
+from clarc.contracts.library import ContractLibrary
+from clarc.solve.loop import solve_task
+from clarc.contracts.sandbox import verify_predicate
+from clarc.contracts.store import LearnedStore
+from clarc.common.types import ClarcConfig, LearnedContract
 
 # Recolor task (1 -> 2). Identity passes the fixed spec (semantic conflict).
 TRAIN_IN = [[[1, 0], [0, 1]], [[1, 1], [0, 0]]]
