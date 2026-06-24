@@ -44,7 +44,7 @@ async def run(
         try:
             payload = json.loads(stdout.decode())
             return bool(payload.get("ok")), json.dumps(payload.get("result"))
-        except Exception as e:
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError) as e:
             return False, f"bad-json: {e}"
 
 

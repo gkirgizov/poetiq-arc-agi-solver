@@ -98,7 +98,7 @@ async def llm(
             await asyncio.sleep(RETRY_DELAY_SEC)
             continue
 
-        except Exception as e:
+        except Exception as e:   # external-API resilience: unexpected litellm/transport errors, handled by message below
             end_time = asyncio.get_event_loop().time()
             duration = end_time - start_time
             if max_remaining_time is not None:

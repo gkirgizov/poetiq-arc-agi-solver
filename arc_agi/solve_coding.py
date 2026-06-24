@@ -83,7 +83,7 @@ async def solve_coding(
             )
             total_prompt_tokens += prompt_tokens
             total_completion_tokens += completion_tokens
-        except Exception as e:
+        except Exception as e:   # LLM/transport resilience: dispatch on the message (time-budget exit vs retry)
             if "Exceeded timeouts allotted to the request" in str(e) or "Exceeded time allotted to the request" in str(e):
                 # Exceeded max_remaining_timeouts or max_remaining_time
                 print("Exiting early due to exceeding allotted time or timeouts on problem", problem_id)
@@ -226,7 +226,7 @@ def _json_to_ndarray(s: str) -> Optional[np.ndarray]:
         if arr.ndim < 2:
             arr = np.expand_dims(arr, axis=list(range(2 - arr.ndim)))
         return arr.astype(int, copy=False)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
@@ -336,7 +336,7 @@ def _parse_json_array_no_expand(s: str) -> Optional[np.ndarray]:
     """Parse JSON into a NumPy array without changing rank or dtype."""
     try:
         return np.array(json.loads(s))
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
